@@ -7,6 +7,16 @@ nothing but make HTTPS requests, so it is easy to audit.
 
 ## Tools
 
+### `check_lockfile` (free, no API key)
+
+Checks every exactly-pinned dependency in your lockfile against published
+malicious-package advisories. Reads `package-lock.json`, `yarn.lock`, or
+`pnpm-lock.yaml` from the working directory, so the agent never has to paste a
+lockfile through its context. One call covers the whole tree.
+
+An empty `malicious` list is an all-clear only when `unverified` is also empty.
+
+
 - **`known_bad_lookup`**: free, no key. Is a sha256 content hash a known-bad
   artifact? Exact-hash match against an indicator store refreshed daily.
 - **`scan_artifact`**: fetches a target (npm package, GitHub repo, ClawHub
