@@ -8,6 +8,9 @@
     "lazaretto-mcp": "index.mjs"
   },
   "main": "index.mjs",
+  "scripts": {
+    "build": "node --check index.mjs"
+  },
   "mcpName": "io.github.jamesdfinance-dev/lazaretto",
   "files": [
     "index.mjs",
