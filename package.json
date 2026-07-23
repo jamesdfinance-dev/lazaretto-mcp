@@ -1,6 +1,6 @@
 {
   "name": "lazaretto-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server for Lazaretto: check a lockfile for known-malicious dependencies (free, no key), or scan a skill, tool, or package before an agent installs it.",
   "license": "MIT",
   "type": "module",

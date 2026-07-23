@@ -60,24 +60,46 @@ function readLocalLockfile(path) {
 server.registerTool(
   'check_lockfile',
   {
-    title: 'Check a whole lockfile for known-malicious dependencies (free)',
-    description:
-      'Check every EXACTLY-PINNED dependency in a lockfile against published malicious-package ' +
-      'advisories (OSV/OpenSSF). Free, no API key, one call for the whole dependency tree. Reads ' +
-      'package-lock.json, yarn.lock, or pnpm-lock.yaml from the working directory by default. ' +
-      'Only exact versions can be answered: a range like ^5.0.0 has no definitive answer, because a ' +
-      'compromised release usually sits between clean ones. FAIL-CLOSED: an empty `malicious` list is ' +
-      'an all-clear only when `unverified` is also empty.',
+    title: 'Check a whole lockfile for known-malicious dependencies (free, no API key)',
+    description: [
+      'Checks every exactly-pinned dependency in a lockfile against published malicious-package',
+      'advisories (OSV / OpenSSF). One call covers the entire dependency tree.',
+      '',
+      'WHEN TO USE: before installing dependencies, or when auditing a project you did not write.',
+      'This is the broadest and cheapest check, so start here. Prefer scan_artifact when you need to',
+      'know what a specific package DOES rather than whether it is already known malware. Prefer',
+      'known_bad_lookup when you already hold a sha256 of a file rather than a lockfile.',
+      '',
+      'COST AND EFFECTS: free, no API key, no payment. Read-only. Reads the lockfile from the working',
+      'directory itself, so a large lockfile never has to be pasted through the model context.',
+      '',
+      'LIMITS: only exactly-pinned versions can be answered. A range such as ^5.0.0 has no definitive',
+      'answer, because a compromised release usually sits between clean ones (chalk 5.6.1 was malware',
+      'while 5.3.0 and later releases were not). Entries with no published registry identity',
+      '(file:, link:, workspace:, git) are counted under `skipped` rather than silently dropped.',
+      '',
+      'READING THE RESULT: `malicious` lists confirmed known-malware versions with advisory ids.',
+      'An empty `malicious` list is an all-clear ONLY when `unverified` is also empty: anything under',
+      '`unverified` could not be checked and must never be reported as clean.',
+    ].join('\n'),
     inputSchema: {
       path: z
         .string()
         .max(512)
         .optional()
-        .describe('Lockfile path relative to the working directory. Omit to auto-detect.'),
+        .describe(
+          'Lockfile path relative to the working directory, e.g. "package-lock.json" or ' +
+            '"apps/web/pnpm-lock.yaml". Omit to auto-detect package-lock.json, npm-shrinkwrap.json, ' +
+            'yarn.lock, or pnpm-lock.yaml in the working directory. Only those filenames are read.',
+        ),
       lockfile: z
         .string()
         .optional()
-        .describe('Lockfile CONTENTS, if you already have them and do not want it read from disk.'),
+        .describe(
+          'Full text contents of a lockfile, for when it is not on disk (for example fetched from a ' +
+            'PR diff). Supplying this skips reading from disk. Prefer omitting it and letting the tool ' +
+            'read the file, which keeps a large lockfile out of the context window.',
+        ),
     },
   },
   async ({ path, lockfile }) => {
@@ -119,11 +141,37 @@ server.registerTool(
 server.registerTool(
   'known_bad_lookup',
   {
-    title: 'Check whether a content hash is a known-bad artifact (free)',
-    description:
-      'Look up a sha256 content hash against Lazaretto\'s known-bad indicator store (free, no key). ' +
-      `Returns whether the hash matches a known-bad artifact and its sources. ${UNTRUSTED}`,
-    inputSchema: { sha256: z.string().regex(/^(sha256:)?[0-9a-fA-F]{64}$/, 'must be a sha256 hex digest') },
+    title: 'Look up one sha256 content hash against the known-bad indicator store (free, no API key)',
+    description: [
+      "Checks a single sha256 content hash against Lazaretto's known-bad indicator store, which is",
+      'refreshed daily from abuse.ch feeds (URLhaus / ThreatFox).',
+      '',
+      'WHEN TO USE: when you already have the hash of a file or artifact and want an instant yes/no on',
+      'identity. Prefer check_lockfile when you have a dependency tree instead of a hash. Prefer',
+      'scan_artifact when you have a package, repo, or skill and need to know how it behaves rather',
+      'than whether its hash is already listed.',
+      '',
+      'COST AND EFFECTS: free, no API key, no payment. Read-only, a single HTTPS lookup.',
+      '',
+      'LIMITS: this is an EXACT hash match. It performs no analysis of content, so a repacked or',
+      'even trivially modified variant hashes differently and will not match.',
+      '',
+      'READING THE RESULT: `matched: true` means this exact hash is a known-bad artifact, and',
+      '`sources` names the feeds it came from. `matched: false` means only that this hash is absent',
+      'from the indicator set, which is NOT a clean verdict on the artifact. `matched: null` means the',
+      'store could not be consulted, which is also not a clean verdict. For an actual behavioral',
+      'opinion, use scan_artifact.',
+    ].join('\n'),
+    inputSchema: {
+      sha256: z
+        .string()
+        .regex(/^(sha256:)?[0-9a-fA-F]{64}$/, 'must be a sha256 hex digest')
+        .describe(
+          'A sha256 content hash as 64 hex characters, with or without a leading "sha256:" prefix. ' +
+            'This is the hash of the artifact bytes themselves (for example `shasum -a 256 file.tgz`), ' +
+            'not of a URL or a package name.',
+        ),
+    },
   },
   async ({ sha256 }) => {
     const hash = sha256.replace(/^sha256:/i, '').toLowerCase();
@@ -139,18 +187,70 @@ server.registerTool(
 server.registerTool(
   'scan_artifact',
   {
-    title: 'Scan a skill/tool/package for malicious signals before installing it',
-    description:
-      'Fetch a third-party skill, tool, or package WITHOUT running it, analyze it deterministically ' +
-      '(credential access, exfiltration, obfuscation, prompt injection, install-time droppers, bundled ' +
-      `secrets), match known-bad indicators, and return a verdict (malicious | flagged | clear | error). ${UNTRUSTED} ` +
-      "'clear' means no known-bad match and no rule fired — not a statement about risk. A paid full scan " +
-      'needs a key with credits (LAZARETTO_API_KEY) or an x402 payment; without either it returns the price.',
+    title: 'Deterministically scan a package, repo, or skill for malicious behavior before installing it',
+    description: [
+      'Fetches a third-party artifact WITHOUT executing it and analyzes it with deterministic rules',
+      '(no LLM in the serving path), returning a verdict together with the file, line, and evidence',
+      'that triggered each finding.',
+      '',
+      'WHEN TO USE: when you need to know what an artifact DOES, not merely whether it is already',
+      'listed as malware. Run check_lockfile first when you have a dependency tree, since it is free',
+      'and covers every package at once. Use known_bad_lookup instead when all you hold is a sha256.',
+      '',
+      'DETECTS: credential access, data exfiltration, obfuscation, prompt injection aimed at the',
+      'calling agent, install-time droppers, and bundled secrets.',
+      '',
+      'COST AND EFFECTS: this is the only paid tool here. It consumes one prepaid credit per',
+      'successful scan, authenticated by the LAZARETTO_API_KEY environment variable, or it can settle',
+      'per call over x402. With neither configured it returns the price and consumes nothing. An',
+      '`error` verdict is never billed. The artifact is fetched in a sandbox and never executed.',
+      '',
+      'LIMITS: heuristics cap at `flagged`; only a known-bad indicator or a published malicious-package',
+      'advisory produces `malicious`. Minified or bundled code is not fully readable, and a very large',
+      'artifact can exceed the size budget; in both cases the scan is marked partial and confidence is',
+      'degraded rather than reported as a confident clear.',
+      '',
+      'READING THE RESULT: gate on `risk` (critical, high, medium, low, none), NOT on `verdict`.',
+      '`verdict` only reports whether anything fired, so a credential stealer and a bundler that calls',
+      'Function() are both `flagged`; `risk` separates them. `clear` means no known-bad match and no',
+      'rule fired, which is not a statement that the artifact is risk-free. Each verdict binds to',
+      '`target_hash`, so you can confirm that what you install is what was scanned.',
+      '',
+      UNTRUSTED,
+    ].join('\n'),
     inputSchema: {
-      target_type: z.enum(['github_repo', 'raw_url', 'clawhub_skill', 'npm_package', 'inline']),
-      ref: z.string().max(2048).optional().describe('URL / owner/repo / package@version / owner/slug'),
-      content: z.string().optional().describe('raw text, ONLY for target_type=inline'),
-      depth: z.enum(['lookup', 'full']).default('full'),
+      target_type: z
+        .enum(['github_repo', 'raw_url', 'clawhub_skill', 'npm_package', 'inline'])
+        .describe(
+          'What kind of artifact `ref` identifies. npm_package for a registry package, github_repo ' +
+            'for a repository, clawhub_skill for a ClawHub skill, raw_url for a single fetchable file, ' +
+            'or inline to scan text you already have (which uses `content` instead of `ref`).',
+        ),
+      ref: z
+        .string()
+        .max(2048)
+        .optional()
+        .describe(
+          'The locator, matching target_type: "name@1.2.3" for npm_package (ALWAYS pin an exact ' +
+            'version, since a compromised release usually sits between clean ones), "owner/repo" for ' +
+            'github_repo, "owner/slug" for clawhub_skill, or a full https URL for raw_url. Omit only ' +
+            'when target_type is inline.',
+        ),
+      content: z
+        .string()
+        .optional()
+        .describe(
+          'Raw text to analyze directly. Required when target_type is inline, ignored otherwise. Use ' +
+            'this for a snippet or file you already hold and do not want fetched from the network.',
+        ),
+      depth: z
+        .enum(['lookup', 'full'])
+        .default('full')
+        .describe(
+          'How much work to do. "full" runs the complete behavioral rule set and returns evidence. ' +
+            '"lookup" only matches known-bad indicators and skips the rules, so it is faster and ' +
+            'returns no findings. Use "full" unless you specifically want an identity check.',
+        ),
     },
   },
   async ({ target_type, ref, content, depth }) => {
