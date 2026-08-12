@@ -1,5 +1,7 @@
 # lazaretto-mcp
 
+[![Lazaretto on the x402 List](https://x402-list.com/badge/lazaretto.svg?data=uptime)](https://x402-list.com/services/lazaretto)
+
 An [MCP](https://modelcontextprotocol.io) server that lets an agent verify a
 skill, tool, or package before it installs it. It is a thin front end for the
 [Lazaretto](https://lazaretto.dev) API. It ships no detection logic and does
