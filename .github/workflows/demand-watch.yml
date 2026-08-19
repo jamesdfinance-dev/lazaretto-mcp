@@ -1,0 +1,112 @@
+# Weekly demand watch.
+#
+# Answers one question: has anyone hit the Lazaretto credit paywall while there
+# is still no way for a human to pay by card. It runs on GitHub's runners
+# because they have open internet: Claude cloud sessions cannot reach
+# lazaretto.dev at all (the sandbox egress proxy refuses the domain for both
+# curl and WebFetch), so no scheduled agent can perform this check itself.
+#
+# It reads only the PUBLIC boolean endpoint, so this workflow needs no secrets.
+# Signal and failure both open a labelled issue, which GitHub emails to the
+# owner. A quiet week is deliberately silent; the job summary always records
+# what was seen.
+name: Demand watch
+
+on:
+  schedule:
+    - cron: '0 12 * * 1' # Mondays 12:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the public demand signal
+        id: read
+        run: |
+          set +e
+          body=$(curl -fsS --max-time 20 https://lazaretto.dev/v1/demand-status)
+          rc=$?
+          set -e
+          if [ $rc -ne 0 ]; then
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+            echo "detail=curl exited $rc" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "reachable=true" >> "$GITHUB_OUTPUT"
+          echo "waiting=$(echo "$body" | jq -r '.demand_waiting')" >> "$GITHUB_OUTPUT"
+          echo "card=$(echo "$body" | jq -r '.card_checkout_live')" >> "$GITHUB_OUTPUT"
+          echo "x402=$(echo "$body" | jq -r '.x402_live')" >> "$GITHUB_OUTPUT"
+          echo "raw<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$body" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Decide and notify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REACHABLE: ${{ steps.read.outputs.reachable }}
+          WAITING: ${{ steps.read.outputs.waiting }}
+          CARD: ${{ steps.read.outputs.card }}
+          X402: ${{ steps.read.outputs.x402 }}
+          DETAIL: ${{ steps.read.outputs.detail }}
+          RAW: ${{ steps.read.outputs.raw }}
+        run: |
+          set -euo pipefail
+          open_issue() { # title, body
+            existing=$(gh issue list --repo "$REPO" --label demand-watch --state open --json number --jq '.[0].number // empty')
+            if [ -n "$existing" ]; then
+              gh issue comment "$existing" --repo "$REPO" --body "$2"
+              echo "commented on existing issue #$existing"
+            else
+              gh issue create --repo "$REPO" --label demand-watch --title "$1" --body "$2"
+            fi
+          }
+
+          if [ "$REACHABLE" != "true" ]; then
+            echo "### Demand watch FAILED" >> "$GITHUB_STEP_SUMMARY"
+            open_issue "Demand watch could not reach the API" \
+          "The weekly demand check could not read https://lazaretto.dev/v1/demand-status ($DETAIL).
+
+          That is either an outage or a DNS/TLS problem. Check https://lazaretto.dev/v1/health before assuming anything about demand.
+
+          This issue is filed by .github/workflows/demand-watch.yml. Close it once the endpoint answers again."
+            exit 0
+          fi
+
+          {
+            echo "### Demand watch"
+            echo ""
+            echo "- someone waiting to pay: \`$WAITING\`"
+            echo "- card checkout live: \`$CARD\`"
+            echo "- x402 (agent payments) live: \`$X402\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$CARD" = "true" ]; then
+            existing=$(gh issue list --repo "$REPO" --label demand-watch --state open --json number --jq '.[0].number // empty')
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$REPO" --comment "Card checkout is live, so this is resolved."
+            fi
+            exit 0
+          fi
+
+          if [ "$WAITING" = "true" ]; then
+            open_issue "Someone is waiting to pay: decide on card checkout" \
+          "At least one caller has hit the Lazaretto credit paywall, and there is currently NO way for a human to pay: card checkout is built and deployed but switched off.
+
+          Two steps to turn it on:
+
+          1. Create a Stripe account for Meridian Bridge Advisors LLC at https://dashboard.stripe.com/register . Live mode needs the company bank account linked, and verification takes a day or two.
+          2. Start a Claude Code session in the lazaretto repo and say 'turn on card checkout'. One command sets the secret and /buy goes live.
+
+          Exact paywall counts are not published; they are in the admin view at https://lazaretto.dev/v1/health with the metrics bearer.
+
+          Filed automatically by .github/workflows/demand-watch.yml."
+          else
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Quiet week, nobody has hit the paywall. No issue filed." >> "$GITHUB_STEP_SUMMARY"
+          fi
