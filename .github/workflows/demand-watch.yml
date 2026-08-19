@@ -16,6 +16,13 @@ on:
   schedule:
     - cron: '0 12 * * 1' # Mondays 12:00 UTC
   workflow_dispatch:
+    inputs:
+      simulate:
+        description: 'Test the alert paths without touching production data'
+        required: false
+        default: 'off'
+        type: choice
+        options: ['off', 'waiting', 'quiet', 'unreachable']
 
 permissions:
   issues: write
@@ -27,7 +34,24 @@ jobs:
     steps:
       - name: Read the public demand signal
         id: read
+        env:
+          SIMULATE: ${{ inputs.simulate }}
         run: |
+          # Dispatch-only rehearsal of each branch. Never active on the schedule,
+          # so a real signal can never be faked by a scheduled run.
+          if [ "${SIMULATE:-off}" = "unreachable" ]; then
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+            echo "detail=SIMULATED failure (manual dispatch)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${SIMULATE:-off}" = "waiting" ] || [ "${SIMULATE:-off}" = "quiet" ]; then
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+            echo "waiting=$([ "$SIMULATE" = "waiting" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            echo "card=false" >> "$GITHUB_OUTPUT"
+            echo "x402=true" >> "$GITHUB_OUTPUT"
+            echo "simulated=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           set +e
           body=$(curl -fsS --max-time 20 https://lazaretto.dev/v1/demand-status)
           rc=$?
@@ -54,16 +78,28 @@ jobs:
           CARD: ${{ steps.read.outputs.card }}
           X402: ${{ steps.read.outputs.x402 }}
           DETAIL: ${{ steps.read.outputs.detail }}
+          SIMULATED: ${{ steps.read.outputs.simulated }}
           RAW: ${{ steps.read.outputs.raw }}
         run: |
           set -euo pipefail
+          # A rehearsal must never look like a real alert.
+          if [ "${SIMULATED:-}" = "true" ] || [ "${DETAIL:-}" != "${DETAIL#SIMULATED}" ]; then
+            PREFIX="[TEST] "
+            NOTE="
+
+          This is a REHEARSAL from a manual dispatch, not a real signal. Close it."
+          else
+            PREFIX=""
+            NOTE=""
+          fi
+
           open_issue() { # title, body
             existing=$(gh issue list --repo "$REPO" --label demand-watch --state open --json number --jq '.[0].number // empty')
             if [ -n "$existing" ]; then
-              gh issue comment "$existing" --repo "$REPO" --body "$2"
+              gh issue comment "$existing" --repo "$REPO" --body "$2${NOTE}"
               echo "commented on existing issue #$existing"
             else
-              gh issue create --repo "$REPO" --label demand-watch --title "$1" --body "$2"
+              gh issue create --repo "$REPO" --label demand-watch --title "${PREFIX}$1" --body "$2${NOTE}"
             fi
           }
 
