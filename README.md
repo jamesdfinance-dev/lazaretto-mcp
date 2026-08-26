@@ -7,6 +7,18 @@ skill, tool, or package before it installs it. It is a thin front end for the
 [Lazaretto](https://lazaretto.dev) API. It ships no detection logic and does
 nothing but make HTTPS requests, so it is easy to audit.
 
+## Try it in one line, nothing installed
+
+Check every exactly pinned dependency in your project against published
+malicious-package advisories. No account, no key, no install:
+
+```bash
+curl -s https://lazaretto.dev/check --data-binary @package-lock.json
+```
+
+Works with `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock` or
+`pnpm-lock.yaml`. We keep no copy of your lockfile.
+
 ## Tools
 
 ### `check_lockfile` (free, no API key)
