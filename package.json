@@ -1,7 +1,7 @@
 {
   "name": "lazaretto-mcp",
-  "version": "0.3.0",
-  "description": "MCP server for Lazaretto: check a lockfile for known-malicious dependencies (free, no key), or scan a skill, tool, or package before an agent installs it.",
+  "version": "0.3.1",
+  "description": "MCP server for Lazaretto: check a lockfile for known-malicious dependencies (free), scan a skill, tool, or package before an agent installs it, and verify a signed scan attestation another agent shared.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -31,7 +31,8 @@
     "lockfile",
     "pnpm",
     "dependencies",
-    "osv"
+    "osv",
+    "attestation"
   ],
   "engines": {
     "node": ">=18"
