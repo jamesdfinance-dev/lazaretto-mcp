@@ -33,6 +33,12 @@ An empty `malicious` list is an all-clear only when `unverified` is also empty.
 
 - **`known_bad_lookup`**: free, no key. Is a sha256 content hash a known-bad
   artifact? Exact-hash match against an indicator store refreshed daily.
+- **`verify_attestation`**: free, no key. A scan verdict ships with a signed
+  attestation (compact JWS). Hand this tool one that another agent, a README, or
+  a lockfile gave you: it confirms the signature is Lazaretto's, returns the
+  attested claims, and flags `contradicted` if a once-`clear` subject is now
+  known-bad, so a verdict can be trusted without re-scanning or re-paying. Still
+  confirm the artifact you will run matches `claims.sub`.
 - **`scan_artifact`**: fetches a target (npm package, GitHub repo, ClawHub
   skill, raw URL, or inline text) without running it and returns a deterministic
   verdict (`malicious`, `flagged`, `clear`, `error`) with evidence. A full scan
@@ -61,8 +67,9 @@ process.
 }
 ```
 
-`known_bad_lookup` works with no key. `scan_artifact` needs credits: buy a bundle
-at https://lazaretto.dev/#pricing (an agent can also do this itself over x402 at
+`check_lockfile`, `known_bad_lookup`, and `verify_attestation` work with no key.
+`scan_artifact` needs credits: buy a bundle at https://lazaretto.dev/#pricing (an
+agent can also do this itself over x402 at
 `POST https://lazaretto.dev/v1/credits/topup`).
 
 ## Self-host the stdio server (optional)
