@@ -1,6 +1,6 @@
 {
   "name": "lazaretto-mcp",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "MCP server for Lazaretto: check a lockfile for known-malicious dependencies (free), scan a skill, tool, or package before an agent installs it, and verify a signed scan attestation another agent shared.",
   "license": "MIT",
   "type": "module",
@@ -43,7 +43,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jamesdfinance-dev/lazaretto.git"
+    "url": "git+https://github.com/jamesdfinance-dev/lazaretto-mcp.git"
   },
-  "homepage": "https://lazaretto.dev"
+  "homepage": "https://lazaretto.dev",
+  "bugs": {
+    "url": "https://github.com/jamesdfinance-dev/lazaretto-mcp/issues"
+  }
 }
