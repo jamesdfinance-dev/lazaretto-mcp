@@ -164,23 +164,31 @@ jobs:
         run: |
           set +e
           api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 'https://api.pulsemcp.com/v0beta/servers?count_per_page=1')
+          body=$(curl -s --max-time 20 'https://api.pulsemcp.com/v0beta/servers?count_per_page=1')
           listed=$(curl -s --max-time 20 'https://api.pulsemcp.com/v0beta/servers?query=lazaretto' | grep -c lazaretto)
           set -e
+          # A 200 is NOT the signal: their API answered 200 while returning an
+          # empty index and no total_count, with submissions still paused. The
+          # signal that ingestion is actually running is a POPULATED index.
+          total=$(echo "$body" | jq -r '.total_count // 0')
           echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "total=$total" >> "$GITHUB_OUTPUT"
           echo "listed=$listed" >> "$GITHUB_OUTPUT"
           {
             echo "### PulseMCP"
             echo ""
-            echo "- public API status: \`$api\` (410 means still retired)"
+            echo "- public API status: \`$api\`"
+            echo "- servers in their index: \`$total\` (0 means ingestion is not running yet)"
             echo "- lazaretto present: \`$listed\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Open an issue when it reopens
-        if: steps.probe.outputs.api == '200'
+        if: steps.probe.outputs.api == '200' && steps.probe.outputs.total != '0'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           LISTED: ${{ steps.probe.outputs.listed }}
+          TOTAL: ${{ steps.probe.outputs.total }}
         run: |
           set -euo pipefail
           existing=$(gh issue list --repo "$REPO" --label pulsemcp --state open --json number --jq '.[0].number // empty')
