@@ -146,3 +146,51 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "Quiet week, nobody has hit the paywall. No issue filed." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # PulseMCP is one of the largest MCP directories and we are not in it. Its
+  # submissions are paused and its public API returns 410 Gone, so there is
+  # nothing to submit: it is rebuilding ingestion. It tells submitters to
+  # publish to the official MCP registry instead, which we have done, so the
+  # useful move is to notice the moment it reopens rather than checking by
+  # hand forever. Files an issue once, when something actually changes.
+  pulsemcp:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Check whether PulseMCP has reopened
+        id: probe
+        run: |
+          set +e
+          api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 'https://api.pulsemcp.com/v0beta/servers?count_per_page=1')
+          listed=$(curl -s --max-time 20 'https://api.pulsemcp.com/v0beta/servers?query=lazaretto' | grep -c lazaretto)
+          set -e
+          echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "listed=$listed" >> "$GITHUB_OUTPUT"
+          {
+            echo "### PulseMCP"
+            echo ""
+            echo "- public API status: \`$api\` (410 means still retired)"
+            echo "- lazaretto present: \`$listed\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open an issue when it reopens
+        if: steps.probe.outputs.api == '200'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          LISTED: ${{ steps.probe.outputs.listed }}
+        run: |
+          set -euo pipefail
+          existing=$(gh issue list --repo "$REPO" --label pulsemcp --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then echo "already open: #$existing"; exit 0; fi
+          gh issue create --repo "$REPO" --label pulsemcp \
+            --title "PulseMCP is accepting servers again" \
+            --body "PulseMCP's public API is answering again (it had been 410 Gone while they reworked ingestion, with submissions paused).
+
+          Lazaretto present in their index: \`$LISTED\` (0 means still missing).
+
+          They direct submitters to the official MCP registry, where our record is published and complete (io.github.jamesdfinance-dev/lazaretto, with websiteUrl and the remote endpoint), so we may be ingested automatically. If not, submit at https://www.pulsemcp.com/submit .
+
+          Filed automatically by .github/workflows/demand-watch.yml."
