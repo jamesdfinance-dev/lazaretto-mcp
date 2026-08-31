@@ -9,7 +9,7 @@
  * re-scanning.
  *
  * Tools: check_lockfile (free), known_bad_lookup (free), verify_attestation
- * (free), scan_artifact (paid).
+ * (free), scan_artifact and scan_mcp_server (paid).
  *
  * Env:
  *   LAZARETTO_API_KEY  (optional) — a key with scan credits, sent as X-API-Key.
@@ -20,6 +20,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
+import { createRequire } from 'node:module';
 
 const BASE = (process.env.LAZARETTO_BASE_URL ?? 'https://lazaretto.dev').replace(/\/$/, '');
 const API_KEY = process.env.LAZARETTO_API_KEY;
@@ -32,7 +33,14 @@ function textResult(obj, isError = false) {
   return res;
 }
 
-const server = new McpServer({ name: 'lazaretto', version: '0.3.1' });
+// Report the version we actually ship. Hardcoding it here let the client
+// announce 0.3.1 while package.json said 0.4.0, so a client deciding whether
+// it had the tools of a given release was told the wrong thing. npm always
+// packs package.json regardless of the `files` list, so this resolves once
+// installed as well as from a checkout.
+const { version: VERSION } = createRequire(import.meta.url)('./package.json');
+
+const server = new McpServer({ name: 'lazaretto', version: VERSION });
 
 /**
  * The lockfiles we will read from disk. This tool runs on the user's machine,
@@ -280,11 +288,13 @@ server.registerTool(
     ].join('\n'),
     inputSchema: {
       target_type: z
-        .enum(['github_repo', 'raw_url', 'clawhub_skill', 'npm_package', 'inline'])
+        .enum(['github_repo', 'raw_url', 'clawhub_skill', 'npm_package', 'pypi_package', 'mcp_server', 'inline'])
         .describe(
-          'What kind of artifact `ref` identifies. npm_package for a registry package, github_repo ' +
-            'for a repository, clawhub_skill for a ClawHub skill, raw_url for a single fetchable file, ' +
-            'or inline to scan text you already have (which uses `content` instead of `ref`).',
+          'What kind of artifact `ref` identifies. npm_package for a registry package, pypi_package ' +
+            'for a Python one, github_repo for a repository, clawhub_skill for a ClawHub skill, ' +
+            'mcp_server for an MCP endpoint (prefer the scan_mcp_server tool), raw_url for a single ' +
+            'fetchable file, or inline to scan text you already have (which uses `content` instead ' +
+            'of `ref`).',
         ),
       ref: z
         .string()
@@ -334,6 +344,73 @@ server.registerTool(
       return textResult(body);
     } catch (e) {
       return textResult({ error: 'request_failed', detail: String(e?.message ?? e) });
+    }
+  },
+);
+
+server.registerTool(
+  'scan_mcp_server',
+  {
+    title: 'Check what an MCP server advertises before you connect to it',
+    description: [
+      'Asks an MCP server to introduce itself and list its tools, then analyzes the text that server',
+      'hands an agent: tool names, descriptions, parameter schemas, and its server-level instructions.',
+      '',
+      'WHEN TO USE: before adding a server you did not write to a client, and again after it changes.',
+      'That advertised text is documentation a model OBEYS, so it is an instruction channel the server',
+      'controls. Use scan_artifact instead when you have the server\'s source package rather than a',
+      'live endpoint.',
+      '',
+      'DETECTS: tool poisoning (hidden directive blocks, orders that point the agent at private keys',
+      'or at an agent config file), parameters whose real purpose is to carry secrets or your',
+      'conversation out, standing orders about ANOTHER server\'s tools (cross-server shadowing), and',
+      'invisible-unicode payloads.',
+      '',
+      'COST AND EFFECTS: paid, exactly like scan_artifact (one prepaid credit via LAZARETTO_API_KEY,',
+      'or settle per call over x402). It connects to the server you name and calls only `initialize`',
+      'and `tools/list`, which are read-only handshake methods. It invokes none of the server\'s tools.',
+      '',
+      'LIMITS: this reads what a server SAYS, not what its code does, so a server that advertises',
+      'innocent tools and misbehaves when called is out of scope. A server can also answer differently',
+      'to different callers; the verdict covers the tool set we were served, which is what target_hash',
+      'pins.',
+      '',
+      'READING THE RESULT: evidence names the exact tool, as `mcp/tools/<tool>.txt`, and',
+      '`mcp/instructions.txt` for server-level text. Gate on `risk`, not `verdict`. `target_hash`',
+      'covers the advertised tool set, so re-scan and compare to notice a server that changed its',
+      'tools after you approved it.',
+      '',
+      UNTRUSTED,
+    ].join('\n'),
+    inputSchema: {
+      url: z
+        .string()
+        .max(2048)
+        .describe(
+          'The MCP server\'s https endpoint, for example https://example.com/mcp. Streamable HTTP and ' +
+            'SSE replies are both read.',
+        ),
+    },
+  },
+  async ({ url }) => {
+    try {
+      const res = await fetch(`${BASE}/v1/scan`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(API_KEY ? { 'x-api-key': API_KEY } : {}) },
+        body: JSON.stringify({ target: { type: 'mcp_server', ref: url }, depth: 'full' }),
+      });
+      const body = await res.json();
+      if (res.status === 402) {
+        return textResult({
+          payment_required: true,
+          detail: 'Scanning a server is paid. Set LAZARETTO_API_KEY (buy credits at ' + BASE + '/#pricing) or pay via x402.',
+          ...body,
+        });
+      }
+      return textResult(body);
+    } catch (e) {
+      // Fail closed: a transport failure is not "the server is fine".
+      return textResult({ error: 'request_failed', detail: String(e?.message ?? e), not_an_all_clear: true });
     }
   },
 );
