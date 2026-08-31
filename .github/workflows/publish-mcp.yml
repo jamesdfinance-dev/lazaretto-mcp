@@ -1,24 +1,69 @@
-name: Publish to MCP Registry
+name: Release
 
-# Publishes server.json to the official MCP registry using GitHub OIDC. No PAT,
-# no device login, no npm: this is a remotes-only server (the hosted endpoint at
-# https://lazaretto.dev/mcp), so there is nothing to build or upload. OIDC proves
-# this repo belongs to jamesdfinance-dev, which authorizes the
-# io.github.jamesdfinance-dev/* namespace. Runs in CI, so it is laptop-independent.
+# One tag publishes the whole release, in the order the registries require:
+# npm first, then server.json to the MCP registry, which validates that the npm
+# version in server.json actually exists. Doing that by hand got the order
+# wrong and left the registry pointing at an older package than we shipped.
+#
+# Laptop-independent by design. npm auth is Trusted Publishing (OIDC), so there
+# is no NPM_TOKEN to leak or rotate, and npm records build provenance, which is
+# worth having on a package whose whole job is telling you what code does.
+#
+# One-time setup on npmjs.com, under the package's Settings > Trusted Publisher:
+# repository jamesdfinance-dev/lazaretto-mcp, workflow publish-mcp.yml.
+# Until that is configured the npm job fails and the registry job is skipped;
+# nothing is half-published.
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
 
 jobs:
-  publish:
+  npm:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # required for OIDC
+      id-token: write # Trusted Publishing (OIDC) and provenance
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted Publishing needs a recent npm; the runner's bundled one is older.
+      - run: npm install -g npm@latest
+
+      # Idempotent: a version already on npm is a no-op, not a failure, so a
+      # re-run or a hand-published version still lets the registry job proceed.
+      - name: Publish to npm if this version is new
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already published; nothing to do."
+          else
+            npm publish --provenance --access public
+          fi
+
+  registry:
+    needs: npm
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC proves this repo owns io.github.jamesdfinance-dev/*
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      # server.json names an npm version; publishing a registry entry that
+      # points at a package that does not exist yet just fails validation.
+      - name: Check server.json agrees with what we publish
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          SRV=$(node -p "require('./server.json').packages[0].version")
+          if [ "$PKG" != "$SRV" ]; then
+            echo "server.json says npm $SRV but package.json is $PKG"; exit 1
+          fi
 
       - name: Install mcp-publisher
         run: |
