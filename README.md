@@ -51,6 +51,11 @@ An empty `malicious` list is an all-clear only when `unverified` is also empty.
   deterministic verdict (`malicious`, `flagged`, `clear`, `error`) with
   evidence. A full scan needs prepaid credits (set an `X-API-Key` header). Buy
   them at https://lazaretto.dev/#pricing.
+- **`check_mcp_tools`**: paid. For a server that runs over stdio, which is most
+  of them, nothing can connect to it from outside, so there is no endpoint to
+  check. Your client already read its tool list at startup though: paste that
+  JSON and we analyze the same text with the same rules, contacting no server at
+  all.
 - **`scan_mcp_server`**: paid. Point it at an MCP endpoint before you connect to
   it. It asks the server to introduce itself and list its tools, then analyzes
   the text that server hands an agent: tool names, descriptions, parameter
@@ -84,7 +89,7 @@ process.
 ```
 
 `check_lockfile`, `known_bad_lookup`, and `verify_attestation` work with no key.
-`scan_artifact` and `scan_mcp_server` need credits: buy a bundle at https://lazaretto.dev/#pricing (an
+`scan_artifact`, `scan_mcp_server` and `check_mcp_tools` need credits: buy a bundle at https://lazaretto.dev/#pricing (an
 agent can also do this itself over x402 at
 `POST https://lazaretto.dev/v1/credits/topup`).
 

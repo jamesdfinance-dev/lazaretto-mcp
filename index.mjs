@@ -9,7 +9,7 @@
  * re-scanning.
  *
  * Tools: check_lockfile (free), known_bad_lookup (free), verify_attestation
- * (free), scan_artifact and scan_mcp_server (paid).
+ * (free), scan_artifact, scan_mcp_server and check_mcp_tools (paid).
  *
  * Env:
  *   LAZARETTO_API_KEY  (optional) — a key with scan credits, sent as X-API-Key.
@@ -20,7 +20,6 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
-import { createRequire } from 'node:module';
 
 const BASE = (process.env.LAZARETTO_BASE_URL ?? 'https://lazaretto.dev').replace(/\/$/, '');
 const API_KEY = process.env.LAZARETTO_API_KEY;
@@ -33,14 +32,7 @@ function textResult(obj, isError = false) {
   return res;
 }
 
-// Report the version we actually ship. Hardcoding it here let the client
-// announce 0.3.1 while package.json said 0.4.0, so a client deciding whether
-// it had the tools of a given release was told the wrong thing. npm always
-// packs package.json regardless of the `files` list, so this resolves once
-// installed as well as from a checkout.
-const { version: VERSION } = createRequire(import.meta.url)('./package.json');
-
-const server = new McpServer({ name: 'lazaretto', version: VERSION });
+const server = new McpServer({ name: 'lazaretto', version: '0.5.0' });
 
 /**
  * The lockfiles we will read from disk. This tool runs on the user's machine,
@@ -410,6 +402,70 @@ server.registerTool(
       return textResult(body);
     } catch (e) {
       // Fail closed: a transport failure is not "the server is fine".
+      return textResult({ error: 'request_failed', detail: String(e?.message ?? e), not_an_all_clear: true });
+    }
+  },
+);
+
+server.registerTool(
+  'check_mcp_tools',
+  {
+    title: 'Check tool definitions you already hold, without contacting anyone',
+    description: [
+      'Analyzes MCP tool definitions you already have, with NO network call to any server.',
+      '',
+      'WHEN TO USE: for a server that runs locally over stdio, which is most of them. Nothing can connect',
+      'to those from outside, so scan_mcp_server cannot help, but your client already read their tool list',
+      'at startup. Paste that JSON. Use scan_mcp_server instead when the server has a reachable https',
+      'endpoint and you want us to ask it directly what it currently advertises.',
+      '',
+      'INPUT: a whole tools/list response, a {"tools":[...]} object, or a bare array of tool objects.',
+      '',
+      'DETECTS: the same things as scan_mcp_server, using the same rules over the same rendering, so a',
+      'payload cannot be caught over the wire and missed here: hidden directive blocks, orders that point',
+      'the agent at private keys or an agent config file, parameters whose real purpose is to carry secrets',
+      'or your conversation out, standing orders about ANOTHER server\'s tools, and invisible-unicode',
+      'payloads.',
+      '',
+      'COST AND EFFECTS: paid, one prepaid credit via LAZARETTO_API_KEY or settled per call over x402.',
+      'Contacts no server at all: the text you supply is the entire input.',
+      '',
+      'LIMITS: it reads what those tools SAY, not what the server does when called. And it covers the list',
+      'you pasted: a server can advertise something different to a different client, or change it later.',
+      '',
+      'READING THE RESULT: evidence names the exact tool as mcp/tools/<tool>.txt. Gate on `risk`, not',
+      '`verdict`. `target_hash` covers the tool set you supplied, so you can tell whether it changed.',
+      '',
+      UNTRUSTED,
+    ].join('\n'),
+    inputSchema: {
+      tools_json: z
+        .string()
+        .min(2)
+        .describe(
+          'The tool definitions as JSON text: a tools/list response, {"tools":[...]}, or an array of ' +
+            'tool objects. This is what your MCP client received when it connected to the server.',
+        ),
+    },
+  },
+  async ({ tools_json }) => {
+    try {
+      const res = await fetch(`${BASE}/v1/scan`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(API_KEY ? { 'x-api-key': API_KEY } : {}) },
+        body: JSON.stringify({ target: { type: 'mcp_tools', content: tools_json }, depth: 'full' }),
+      });
+      const body = await res.json();
+      if (res.status === 402) {
+        return textResult({
+          payment_required: true,
+          detail: 'Checking tool definitions is paid. Set LAZARETTO_API_KEY (buy credits at ' + BASE + '/#pricing) or pay via x402.',
+          ...body,
+        });
+      }
+      return textResult(body);
+    } catch (e) {
+      // Fail closed: a transport failure is not "these tools are fine".
       return textResult({ error: 'request_failed', detail: String(e?.message ?? e), not_an_all_clear: true });
     }
   },
