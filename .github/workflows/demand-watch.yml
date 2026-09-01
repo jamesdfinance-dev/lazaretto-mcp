@@ -1,4 +1,8 @@
-# Weekly demand watch.
+# Daily demand watch.
+#
+# Was weekly while a paywall hit was hypothetical. It is now the signal the CI
+# work is aimed at producing, and it is the trigger for turning card checkout
+# on, so up to seven days of delay on the first one was too slow.
 #
 # Answers one question: has anyone hit the Lazaretto credit paywall while there
 # is still no way for a human to pay by card. It runs on GitHub's runners
@@ -14,7 +18,7 @@ name: Demand watch
 
 on:
   schedule:
-    - cron: '0 12 * * 1' # Mondays 12:00 UTC
+    - cron: '0 12 * * *' # daily 12:00 UTC
   workflow_dispatch:
     inputs:
       simulate:
