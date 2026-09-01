@@ -1,0 +1,23 @@
+# Dogfood. Our own dependency tree, checked by our own action on every pull
+# request, so a break in the free path shows up here before a stranger finds it.
+#
+# No api-key secret is set, so this runs the free identity check only: every
+# exactly pinned version against published malicious-package advisories, failing
+# the build on a match. Adding `api-key: ${{ secrets.LAZARETTO_API_KEY }}` also
+# scans the versions each PR adds.
+name: Lazaretto
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jamesdfinance-dev/lazaretto-scan-action@v2
