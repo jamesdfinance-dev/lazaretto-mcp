@@ -31,6 +31,11 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      # Nothing ships that fails its own tests: the stdio server is spawned and
+      # driven over MCP against a local stub of the API.
+      - run: npm ci
+      - run: npm test
+
       # Trusted Publishing needs a recent npm; the runner's bundled one is older.
       - run: npm install -g npm@latest
 

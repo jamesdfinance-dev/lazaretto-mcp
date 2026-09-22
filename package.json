@@ -9,7 +9,8 @@
   },
   "main": "index.mjs",
   "scripts": {
-    "build": "node --check index.mjs"
+    "build": "node --check index.mjs",
+    "test": "node --check index.mjs && node --test test/stdio.test.mjs"
   },
   "mcpName": "io.github.jamesdfinance-dev/lazaretto",
   "files": [
