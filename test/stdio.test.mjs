@@ -129,8 +129,9 @@ test('no key: scan_lockfile_deep sends nothing and says how to get a key', async
   assert.equal(r.isError, true);
   assert.equal(r.body.payment_required, true);
   assert.equal(r.body.not_an_all_clear, true);
-  assert.match(r.body.detail, /\/buy/);
+  assert.ok(r.body.detail.includes(`Buy credits at ${BASE}/buy,`), r.body.detail);
   assert.match(r.body.detail, /\/v1\/trial/);
+  assert.doesNotMatch(r.body.detail, /by card/, 'the /buy page lists the open payment routes');
   assert.equal(seen.length, 0, 'nothing may be sent without a key');
 });
 
@@ -187,12 +188,12 @@ test('keyed 402: the service reason comes first and is closed with a period', as
   assert.equal(r.isError, true);
   assert.equal(r.body.payment_required, true);
   assert.equal(r.body.error, 'insufficient_credits');
-  assert.equal(r.body.detail, `This key has no credits left. Buy more credits by card at ${BASE}/buy.`);
+  assert.equal(r.body.detail, `This key has no credits left. Buy more credits at ${BASE}/buy.`);
   assert.equal(seen[0].headers['x-api-key'], KEY);
 
   routes['POST /v1/scan'] = () => ({ status: 402, json: { error: 'daily_limit_reached', detail: 'Daily limit reached.' } });
   const again = await call(clients.keyed, 'scan_artifact', { target_type: 'npm_package', ref: 'chalk@5.6.1' });
-  assert.equal(again.body.detail, `Daily limit reached. Buy more credits by card at ${BASE}/buy.`);
+  assert.equal(again.body.detail, `Daily limit reached. Buy more credits at ${BASE}/buy.`);
 });
 
 test('keyed 402 on a batch keeps the source and is not an all-clear', async () => {
@@ -206,7 +207,7 @@ test('keyed 402 on a batch keeps the source and is not an all-clear', async () =
   assert.equal(r.body.not_an_all_clear, true);
   assert.equal(r.body.source, 'package-lock.json');
   assert.deepEqual(r.body.ways_to_pay, { card: 'x' });
-  assert.equal(r.body.detail, `A batch scan costs one credit per package. Buy more credits by card at ${BASE}/buy.`);
+  assert.equal(r.body.detail, `A batch scan costs one credit per package. Buy more credits at ${BASE}/buy.`);
 });
 
 test('keyed 401: the key was not accepted', async () => {
@@ -394,7 +395,8 @@ test('scan_lockfile_deep: out of time and short of credits, with a long list', a
   assert.deepEqual(r.body.next_call.packages, left.slice(0, 25), 'next_call takes the next 25');
   assert.match(r.body.next_call.detail, /^3000 package\(s\) were not scanned\./);
   assert.match(r.body.next_call.detail, /2990 of them were left because this key ran short of credits/);
-  assert.match(r.body.next_call.detail, new RegExp(`${BASE}/buy`));
+  assert.ok(r.body.next_call.detail.includes(`buy more at ${BASE}/buy before calling again.`), r.body.next_call.detail);
+  assert.doesNotMatch(r.body.next_call.detail, /by card/);
   assert.doesNotMatch(r.body.next_call.detail, /lists only/);
 
   // next_call.packages is accepted as the next call's input as it stands.

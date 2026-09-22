@@ -113,7 +113,7 @@ process.
 
 `check_lockfile`, `known_bad_lookup`, `find_attestation` and
 `verify_attestation` work with no key. `scan_artifact`, `scan_lockfile_deep`,
-`scan_mcp_server` and `check_mcp_tools` need credits: buy a pack by card at
+`scan_mcp_server` and `check_mcp_tools` need credits: buy a pack at
 https://lazaretto.dev/buy (an agent with a wallet can also buy credits itself
 over x402 at `POST https://lazaretto.dev/v1/credits/topup`).
 
@@ -141,7 +141,8 @@ Or from a clone:
 ```bash
 git clone https://github.com/jamesdfinance-dev/lazaretto-mcp
 cd lazaretto-mcp && npm ci
-LAZARETTO_API_KEY=your-key node index.mjs
+read -rs LAZARETTO_API_KEY && export LAZARETTO_API_KEY
+node index.mjs
 ```
 
 The stdio package pays only with prepaid credits on `LAZARETTO_API_KEY`. It
