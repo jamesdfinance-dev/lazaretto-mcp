@@ -1,6 +1,7 @@
 # lazaretto-mcp
 
 [![Lazaretto on the x402 List](https://x402-list.com/badge/lazaretto.svg?data=uptime)](https://x402-list.com/services/lazaretto)
+[![Lazaretto on Wellknown](https://wellknown.network/agents/lazaretto/badge.svg)](https://wellknown.network/agents/lazaretto)
 
 Know what a package does before you install it.
 
