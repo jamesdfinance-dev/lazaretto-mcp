@@ -631,7 +631,10 @@ server.registerTool(
       const body = await readJson(res);
       if (res.ok && body) {
         const next = batchContinuation(body.not_scanned);
-        return textResult({ source, ...body, ...(next ? { next_call: next } : {}) });
+        // next_call before the body: not_scanned.packages can run to thousands
+        // of names, and a client that cuts a long tool reply short must still
+        // see how to continue.
+        return textResult({ source, ...(next ? { next_call: next } : {}), ...body });
       }
       if (isPaywall(res)) {
         return paywallResult('This key has no credits available.', body, { source });
