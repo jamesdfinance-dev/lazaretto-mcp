@@ -61,13 +61,19 @@ An empty `malicious` list is an all-clear only when `unverified` is also empty.
   https://lazaretto.dev/buy.
 - **`scan_lockfile_deep`**: paid, one credit per package that returns a
   verdict. The behavioral counterpart to `check_lockfile`: reads the code of
-  every exactly pinned dependency (up to 25 per call) instead of only matching
+  every exactly pinned dependency, up to 25 per call, instead of only matching
   names and versions. Trust `complete_coverage`: `false` means something was
   capped, errored or only partly read, so the run is not a clean bill of health
   for the tree. Calling again with the same lockfile rescans, and bills again,
-  the same first packages. To continue a run, pass `packages` (a list of up to
-  25 `name@version` strings) instead: the result lists what was left in
-  `not_scanned.packages`, and `next_call.packages` holds the next up to 25.
+  the same first packages. The result lists every package it left in
+  `not_scanned.packages`, as `name@version` strings. To continue a run, pass
+  those as `packages` instead of the lockfile:
+  - Hosted server (`https://lazaretto.dev/mcp`): pass `not_scanned.packages`
+    back as `packages`, the whole list. It scans the first 25 and lists the
+    rest in `not_scanned.packages` again.
+  - stdio package: `packages` takes up to 25 per call, so work through
+    `not_scanned.packages` 25 at a time. The tool adds `next_call` to the
+    result, and `next_call.packages` holds the first 25 of that list.
 - **`check_mcp_tools`**: paid. For a server that runs over stdio, which is most
   of them, nothing can connect to it from outside, so there is no endpoint to
   check. Your client already read its tool list at startup though: paste that
