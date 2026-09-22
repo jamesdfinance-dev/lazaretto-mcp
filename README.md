@@ -45,7 +45,8 @@ An empty `malicious` list is an all-clear only when `unverified` is also empty.
   artifact? Give a package identity like `chalk@5.6.1`, an MCP server URL, or a
   sha256 content hash, and get the signed verdict if one exists, with its age,
   whether it was made under an older rules version, and `contradicted` if the
-  subject is now known-bad. A miss only means nobody has scanned it yet.
+  subject is now known-bad. A miss means no attestation is on record for this
+  subject. It is not a verdict either way.
 - **`verify_attestation`**: free, no key. A scan verdict ships with a signed
   attestation (compact JWS). Hand this tool one that another agent, a README, or
   a lockfile gave you: it confirms the signature is Lazaretto's, returns the
@@ -63,7 +64,10 @@ An empty `malicious` list is an all-clear only when `unverified` is also empty.
   every exactly pinned dependency (up to 25 per call) instead of only matching
   names and versions. Trust `complete_coverage`: `false` means something was
   capped, errored or only partly read, so the run is not a clean bill of health
-  for the tree.
+  for the tree. Calling again with the same lockfile rescans, and bills again,
+  the same first packages. To continue a run, pass `packages` (a list of up to
+  25 `name@version` strings) instead: the result lists what was left in
+  `not_scanned.packages`, and `next_call.packages` holds the next up to 25.
 - **`check_mcp_tools`**: paid. For a server that runs over stdio, which is most
   of them, nothing can connect to it from outside, so there is no endpoint to
   check. Your client already read its tool list at startup though: paste that
@@ -135,8 +139,10 @@ LAZARETTO_API_KEY=your-key node index.mjs
 ```
 
 The stdio package pays only with prepaid credits on `LAZARETTO_API_KEY`. It
-has no x402 client of its own. `LAZARETTO_BASE_URL` overrides the API host
-(default `https://lazaretto.dev`).
+has no x402 client of its own, so a paywall result carries no x402 payment
+challenge: per-call x402 payment must be made by the agent's own HTTP client
+against `https://lazaretto.dev/v1/scan`, not through this package.
+`LAZARETTO_BASE_URL` overrides the API host (default `https://lazaretto.dev`).
 
 ## License
 

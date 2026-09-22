@@ -63,7 +63,104 @@ function isPaywall(res) {
  *  is always appended rather than overwritten by it. */
 function paywallDetail(lead, body) {
   const next = API_KEY ? `Buy more credits by card at ${BUY_URL}.` : HOW_TO_GET_A_KEY;
-  return `${typeof body?.detail === 'string' ? body.detail : lead} ${next}`;
+  const given = typeof body?.detail === 'string' ? body.detail.trim() : '';
+  const reason = given || lead;
+  // Two sentences, not one run-on: close the service's reason if it did not.
+  return `${reason}${/[.!?]$/.test(reason) ? '' : '.'} ${next}`;
+}
+
+// This package has no x402 client. The one line an agent needs if it wants to
+// pay per call instead of with credits.
+const PER_CALL_X402 =
+  `Per-call x402 payment must be made by the agent's own HTTP client against ${BASE}/v1/scan, not through this tool.`;
+
+/** A paid call that ended at a paywall. A keyless 402 carries an x402 payment
+ *  challenge (accepts, x402Version, extensions) that this package cannot pay,
+ *  so it is dropped rather than handed to the agent as if it could be settled
+ *  here. The rest of the service's answer (its reason, the free options, the
+ *  ways to pay) is kept. Nothing was scanned, so it is never an all-clear. */
+function paywallResult(lead, body, extra = {}) {
+  const { accepts, x402Version, extensions, ...rest } = body && typeof body === 'object' ? body : {};
+  return textResult(
+    { payment_required: true, ...rest, detail: paywallDetail(lead, body), ...extra, not_an_all_clear: true },
+    true,
+  );
+}
+
+/** Why a paid call failed, phrased as what to do next. An agent that just sees
+ *  "error" may report the target as fine, which is the one conclusion it must
+ *  not draw. Called for statuses that are neither a result nor a paywall. */
+function failureDetail(res, body, tooLarge) {
+  if (res.status === 401) return `LAZARETTO_API_KEY was not accepted by ${BASE}. ${HOW_TO_GET_A_KEY}`;
+  if (typeof body?.detail === 'string') return body.detail;
+  if (res.ok) return 'The service answered with a body that could not be read. Do not treat this as an all-clear.';
+  if (res.status === 429) return `Rate limited. Wait ${res.headers.get('retry-after') ?? '60'}s and call this again.`;
+  if (res.status === 413) return tooLarge;
+  if (res.status >= 500) return 'The service could not complete the scan. Do not treat this as an all-clear.';
+  return `HTTP ${res.status}`;
+}
+
+/** One paid single-target scan: POST /v1/scan with the key when there is one.
+ *  scan_artifact, scan_mcp_server and check_mcp_tools differ only in the
+ *  target they send and the words at the paywall. */
+async function paidScan(payload, paywallLead) {
+  try {
+    const res = await fetch(`${BASE}/v1/scan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(API_KEY ? { 'x-api-key': API_KEY } : {}) },
+      body: JSON.stringify(payload),
+    });
+    const body = await readJson(res);
+    if (isPaywall(res)) return paywallResult(paywallLead, body, { per_call_payment: PER_CALL_X402 });
+    if (res.ok && body) return textResult(body);
+    return textResult(
+      {
+        error: body?.error ?? 'scan_failed',
+        detail: failureDetail(res, body, 'The request is larger than the service accepts in one call.'),
+        not_an_all_clear: true,
+      },
+      true,
+    );
+  } catch (e) {
+    // Fail closed: a transport failure is not "the target is fine".
+    return textResult({ error: 'request_failed', detail: String(e?.message ?? e), not_an_all_clear: true }, true);
+  }
+}
+
+// The service scans at most this many packages per batch call.
+const BATCH_MAX_PACKAGES = 25;
+// An exact npm identity: name@version, the name optionally scoped.
+const PACKAGE_ID = /^(?:@[^\s@/]+\/)?[^\s@/]+@\S+$/;
+
+/** "name@1.2.3" or "@scope/name@1.2.3" to the {name, version} the batch
+ *  endpoint takes. The version starts at the first "@" after the name, so a
+ *  scoped name keeps its leading "@". */
+function toPackageRef(id) {
+  const at = id.indexOf('@', 1);
+  return { name: id.slice(0, at), version: id.slice(at + 1) };
+}
+
+/** When a batch left packages unscanned and the service listed them, the exact
+ *  follow-up call. Re-sending the lockfile would rescan (and rebill) the same
+ *  first packages, so the way on is to name the next ones. */
+function batchContinuation(notScanned) {
+  const listed = Array.isArray(notScanned?.packages)
+    ? notScanned.packages.filter((p) => typeof p === 'string' && PACKAGE_ID.test(p))
+    : [];
+  if (listed.length === 0) return undefined;
+  const total = typeof notScanned.count === 'number' ? notScanned.count : listed.length;
+  const parts = [
+    `${total} package(s) were not scanned. Calling again with the same lockfile or list rescans, and bills again, what this call already scanned.`,
+    `To continue, call scan_lockfile_deep again with \`packages\` set to the next up to ${BATCH_MAX_PACKAGES} entries of not_scanned.packages, starting with next_call.packages.`,
+  ];
+  const short = notScanned.by_reason?.credits;
+  if (typeof short === 'number' && short > 0) {
+    parts.push(`${short} of them were left because this key ran short of credits: buy more by card at ${BUY_URL} before calling again.`);
+  }
+  if (total > listed.length) {
+    parts.push(`not_scanned.packages lists only the first ${listed.length} of the ${total}.`);
+  }
+  return { detail: parts.join(' '), packages: listed.slice(0, BATCH_MAX_PACKAGES) };
 }
 
 const server = new McpServer({ name: 'lazaretto', version: '0.6.0' });
@@ -241,10 +338,10 @@ server.registerTool(
       '',
       'COST AND EFFECTS: free, no API key, no payment. Read-only, a single HTTPS lookup.',
       '',
-      'LIMITS: a miss is not a verdict, it only means nobody has scanned this yet. An attestation',
-      'carries the verdict, never the evidence, and it describes the artifact at the time it was',
-      'made. An MCP server can change what it advertises with no new version, so for a server the',
-      'result says how to confirm the verdict still applies.',
+      'LIMITS: a miss means no attestation is on record for this subject; it is not a verdict either',
+      'way. An attestation carries the verdict, never the evidence, and it describes the artifact at',
+      'the time it was made. An MCP server can change what it advertises with no new version, so for',
+      'a server the result says how to confirm the verdict still applies.',
       '',
       'READING THE RESULT: check `contradicted` first: non-null means the subject is NOW a known-bad',
       'match, so a stored `clear` must not be trusted (this result is then marked as an error).',
@@ -424,24 +521,7 @@ server.registerTool(
     const target = { type: target_type };
     if (ref !== undefined) target.ref = ref;
     if (content !== undefined) target.content = content;
-    try {
-      const res = await fetch(`${BASE}/v1/scan`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(API_KEY ? { 'x-api-key': API_KEY } : {}) },
-        body: JSON.stringify({ target, depth }),
-      });
-      const body = await res.json();
-      if (isPaywall(res)) {
-        return textResult({
-          payment_required: true,
-          ...body,
-          detail: paywallDetail('A full scan is paid.', body),
-        });
-      }
-      return textResult(body);
-    } catch (e) {
-      return textResult({ error: 'request_failed', detail: String(e?.message ?? e) });
-    }
+    return paidScan({ target, depth }, 'A full scan is paid.');
   },
 );
 
@@ -465,16 +545,31 @@ server.registerTool(
       'Reads the lockfile from the working directory itself, like check_lockfile.',
       '',
       'LIMITS: capped at 25 packages per call, and a call that runs out of time returns what finished.',
-      'Only exactly pinned versions can be scanned. Each result gives a verdict, risk, the ids of the',
-      'rules that fired and a one-line summary, not the full evidence.',
+      'Calling again with the same lockfile rescans, and bills again, the same first packages. To get',
+      'past them, pass `packages` instead: the name@version of the next ones to scan. Only exactly',
+      'pinned versions can be scanned. Each result gives a verdict, risk, the ids of the rules that',
+      'fired and a one-line summary, not the full evidence.',
       '',
       'READING THE RESULT: trust `complete_coverage`. false means something was capped, errored, only',
       'partly readable, or skipped (see `not_scanned` and `errored`), so the run is NOT a clean bill',
-      'of health for the whole tree. Gate each package on its `risk`, not on `verdict`. A `clear`',
-      'with `analysis_partial: true` is not a clean result. `billed_credits` and `remaining_credits`',
-      'show what the call cost.',
+      'of health for the whole tree. When `not_scanned.packages` lists what was left, `next_call`',
+      'gives the next up to 25 of them to pass as `packages`. Gate each package on its `risk`, not on',
+      '`verdict`. A `clear` with `analysis_partial: true` is not a clean result. `billed_credits` and',
+      '`remaining_credits` show what the call cost.',
     ].join('\n'),
     inputSchema: {
+      packages: z
+        .array(z.string().regex(PACKAGE_ID, 'must be an exact name@version, e.g. "chalk@5.6.1" or "@scope/name@1.2.3"'))
+        .min(1)
+        .max(BATCH_MAX_PACKAGES)
+        .optional()
+        .describe(
+          'Exact name@version identities to scan instead of a lockfile, at most 25, e.g. ' +
+            '["chalk@5.6.1", "@babel/core@7.24.0"]. Use it to continue a run: when a result lists ' +
+            '`not_scanned.packages`, call again with the next up to 25 of them (`next_call.packages` ' +
+            'holds the first 25). When set, `path` and `lockfile` are ignored and no lockfile is read ' +
+            'or sent.',
+        ),
       path: z
         .string()
         .max(512)
@@ -494,7 +589,7 @@ server.registerTool(
         ),
     },
   },
-  async ({ path, lockfile }) => {
+  async ({ packages, path, lockfile }) => {
     // No key means the service can only refuse. Say so here rather than
     // uploading the whole lockfile to be told the same thing.
     if (!API_KEY) {
@@ -511,41 +606,38 @@ server.registerTool(
         true,
       );
     }
-    let text = lockfile;
-    let source = '(provided contents)';
-    if (text === undefined) {
-      const found = readLocalLockfile(path);
-      if (found.error) return textResult({ error: 'lockfile_not_read', detail: found.error }, true);
-      text = found.text;
-      source = found.path;
+    // An explicit list wins over any lockfile: it is how a run continues past
+    // the packages an earlier call already scanned and billed.
+    let request;
+    let source;
+    if (packages !== undefined) {
+      source = '(packages input)';
+      request = {
+        headers: { 'content-type': 'application/json', 'x-api-key': API_KEY },
+        body: JSON.stringify({ packages: packages.map(toPackageRef) }),
+      };
+    } else {
+      let text = lockfile;
+      source = '(provided contents)';
+      if (text === undefined) {
+        const found = readLocalLockfile(path);
+        if (found.error) return textResult({ error: 'lockfile_not_read', detail: found.error }, true);
+        text = found.text;
+        source = found.path;
+      }
+      request = { headers: { 'content-type': 'text/plain', 'x-api-key': API_KEY }, body: text };
     }
     try {
-      const res = await fetch(`${BASE}/v1/scan/batch`, {
-        method: 'POST',
-        headers: { 'content-type': 'text/plain', 'x-api-key': API_KEY },
-        body: text,
-      });
+      const res = await fetch(`${BASE}/v1/scan/batch`, { method: 'POST', ...request });
       const body = await readJson(res);
-      if (res.ok && body) return textResult({ source, ...body });
-      if (res.status === 402) {
-        return textResult(
-          { payment_required: true, ...body, detail: paywallDetail('This key has no credits available.', body), source, not_an_all_clear: true },
-          true,
-        );
+      if (res.ok && body) {
+        const next = batchContinuation(body.not_scanned);
+        return textResult({ source, ...body, ...(next ? { next_call: next } : {}) });
       }
-      // Say what to do next. An agent that just sees "error" may report the
-      // tree as fine, which is the one conclusion it must not draw.
-      const detail =
-        res.status === 401
-          ? `LAZARETTO_API_KEY was not accepted by ${BASE}. ` + HOW_TO_GET_A_KEY
-          : body?.detail ??
-            (res.status === 429
-              ? `Rate limited. Wait ${res.headers.get('retry-after') ?? '60'}s and call this again.`
-              : res.status === 413
-                ? 'The lockfile is larger than the service accepts in one call.'
-                : res.status >= 500
-                  ? 'The service could not complete the scan. Do not treat this as an all-clear.'
-                  : `HTTP ${res.status}`);
+      if (isPaywall(res)) {
+        return paywallResult('This key has no credits available.', body, { source });
+      }
+      const detail = failureDetail(res, body, 'The lockfile is larger than the service accepts in one call.');
       return textResult({ error: body?.error ?? 'batch_scan_failed', detail, source, not_an_all_clear: true }, true);
     } catch (e) {
       // Fail closed: never let a transport failure read as "nothing malicious".
@@ -598,27 +690,8 @@ server.registerTool(
         ),
     },
   },
-  async ({ url }) => {
-    try {
-      const res = await fetch(`${BASE}/v1/scan`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(API_KEY ? { 'x-api-key': API_KEY } : {}) },
-        body: JSON.stringify({ target: { type: 'mcp_server', ref: url }, depth: 'full' }),
-      });
-      const body = await res.json();
-      if (isPaywall(res)) {
-        return textResult({
-          payment_required: true,
-          ...body,
-          detail: paywallDetail('Scanning a server is paid.', body),
-        });
-      }
-      return textResult(body);
-    } catch (e) {
-      // Fail closed: a transport failure is not "the server is fine".
-      return textResult({ error: 'request_failed', detail: String(e?.message ?? e), not_an_all_clear: true });
-    }
-  },
+  async ({ url }) =>
+    paidScan({ target: { type: 'mcp_server', ref: url }, depth: 'full' }, 'Scanning a server is paid.'),
 );
 
 server.registerTool(
@@ -662,27 +735,8 @@ server.registerTool(
         ),
     },
   },
-  async ({ tools_json }) => {
-    try {
-      const res = await fetch(`${BASE}/v1/scan`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(API_KEY ? { 'x-api-key': API_KEY } : {}) },
-        body: JSON.stringify({ target: { type: 'mcp_tools', content: tools_json }, depth: 'full' }),
-      });
-      const body = await res.json();
-      if (isPaywall(res)) {
-        return textResult({
-          payment_required: true,
-          ...body,
-          detail: paywallDetail('Checking tool definitions is paid.', body),
-        });
-      }
-      return textResult(body);
-    } catch (e) {
-      // Fail closed: a transport failure is not "these tools are fine".
-      return textResult({ error: 'request_failed', detail: String(e?.message ?? e), not_an_all_clear: true });
-    }
-  },
+  async ({ tools_json }) =>
+    paidScan({ target: { type: 'mcp_tools', content: tools_json }, depth: 'full' }, 'Checking tool definitions is paid.'),
 );
 
 const transport = new StdioServerTransport();
