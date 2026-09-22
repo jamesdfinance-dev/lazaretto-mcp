@@ -41,6 +41,11 @@ An empty `malicious` list is an all-clear only when `unverified` is also empty.
 
 - **`known_bad_lookup`**: free, no key. Is a sha256 content hash a known-bad
   artifact? Exact-hash match against an indicator store refreshed daily.
+- **`find_attestation`**: free, no key. Has anyone already attested this
+  artifact? Give a package identity like `chalk@5.6.1`, an MCP server URL, or a
+  sha256 content hash, and get the signed verdict if one exists, with its age,
+  whether it was made under an older rules version, and `contradicted` if the
+  subject is now known-bad. A miss only means nobody has scanned it yet.
 - **`verify_attestation`**: free, no key. A scan verdict ships with a signed
   attestation (compact JWS). Hand this tool one that another agent, a README, or
   a lockfile gave you: it confirms the signature is Lazaretto's, returns the
@@ -50,8 +55,15 @@ An empty `malicious` list is an all-clear only when `unverified` is also empty.
 - **`scan_artifact`**: fetches a target (npm or PyPI package, GitHub repo,
   ClawHub skill, raw URL, or inline text) without running it and returns a
   deterministic verdict (`malicious`, `flagged`, `clear`, `error`) with
-  evidence. A full scan needs prepaid credits (set an `X-API-Key` header). Buy
-  them at https://lazaretto.dev/#pricing.
+  evidence. A full scan needs prepaid credits: the `X-API-Key` header on the
+  hosted server, or `LAZARETTO_API_KEY` for the stdio package. Buy them at
+  https://lazaretto.dev/buy.
+- **`scan_lockfile_deep`**: paid, one credit per package that returns a
+  verdict. The behavioral counterpart to `check_lockfile`: reads the code of
+  every exactly pinned dependency (up to 25 per call) instead of only matching
+  names and versions. Trust `complete_coverage`: `false` means something was
+  capped, errored or only partly read, so the run is not a clean bill of health
+  for the tree.
 - **`check_mcp_tools`**: paid. For a server that runs over stdio, which is most
   of them, nothing can connect to it from outside, so there is no endpoint to
   check. Your client already read its tool list at startup though: paste that
@@ -82,29 +94,49 @@ process.
     "lazaretto": {
       "url": "https://lazaretto.dev/mcp",
       "headers": {
-        "X-API-Key": "your-prepaid-key (optional; known_bad_lookup is free)"
+        "X-API-Key": "your-prepaid-key (optional; the free tools need no key)"
       }
     }
   }
 }
 ```
 
-`check_lockfile`, `known_bad_lookup`, and `verify_attestation` work with no key.
-`scan_artifact`, `scan_mcp_server` and `check_mcp_tools` need credits: buy a bundle at https://lazaretto.dev/#pricing (an
-agent can also do this itself over x402 at
-`POST https://lazaretto.dev/v1/credits/topup`).
+`check_lockfile`, `known_bad_lookup`, `find_attestation` and
+`verify_attestation` work with no key. `scan_artifact`, `scan_lockfile_deep`,
+`scan_mcp_server` and `check_mcp_tools` need credits: buy a pack by card at
+https://lazaretto.dev/buy (an agent with a wallet can also buy credits itself
+over x402 at `POST https://lazaretto.dev/v1/credits/topup`).
 
 ## Self-host the stdio server (optional)
 
-If you would rather run it locally over stdio instead of the hosted URL:
+If you would rather run it locally over stdio instead of the hosted URL, the
+npm package is `lazaretto-mcp`:
+
+```json
+{
+  "mcpServers": {
+    "lazaretto": {
+      "command": "npx",
+      "args": ["-y", "lazaretto-mcp"],
+      "env": {
+        "LAZARETTO_API_KEY": "your-prepaid-key (optional; the free tools need no key)"
+      }
+    }
+  }
+}
+```
+
+Or from a clone:
 
 ```bash
 git clone https://github.com/jamesdfinance-dev/lazaretto-mcp
-cd lazaretto-mcp && npm install
+cd lazaretto-mcp && npm ci
 LAZARETTO_API_KEY=your-key node index.mjs
 ```
 
-`LAZARETTO_BASE_URL` overrides the API host (default `https://lazaretto.dev`).
+The stdio package pays only with prepaid credits on `LAZARETTO_API_KEY`. It
+has no x402 client of its own. `LAZARETTO_BASE_URL` overrides the API host
+(default `https://lazaretto.dev`).
 
 ## License
 
