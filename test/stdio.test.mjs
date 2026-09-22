@@ -372,25 +372,39 @@ test('scan_lockfile_deep with packages sends the list, not the lockfile, and sur
   assert.doesNotMatch(r.body.next_call.detail, /ran short of credits/);
 });
 
-test('scan_lockfile_deep: out of time and short of credits, with a list longer than shown', async () => {
+test('scan_lockfile_deep: out of time and short of credits, with a long list', async () => {
+  // The service lists every package it left, not a capped sample.
+  const left = ids(3000);
   routes['POST /v1/scan/batch'] = () => ({
     status: 200,
     json: {
       complete_coverage: false,
       not_scanned: {
-        count: 250,
+        count: 3000,
         reasons: ['ran out of time', 'not enough credits on this key to scan the rest'],
-        by_reason: { credits: 240, time: 10, cap: 0 },
-        packages: ids(200),
+        by_reason: { credits: 2990, time: 10, cap: 0 },
+        packages: left,
       },
       results: [],
     },
   });
   const r = await call(clients.keyed, 'scan_lockfile_deep', {});
-  assert.equal(r.body.next_call.packages.length, 25);
-  assert.match(r.body.next_call.detail, /240 of them were left because this key ran short of credits/);
+  assert.equal(r.isError, false);
+  assert.equal(r.body.not_scanned.packages.length, 3000, 'the full list is kept');
+  assert.deepEqual(r.body.next_call.packages, left.slice(0, 25), 'next_call takes the next 25');
+  assert.match(r.body.next_call.detail, /^3000 package\(s\) were not scanned\./);
+  assert.match(r.body.next_call.detail, /2990 of them were left because this key ran short of credits/);
   assert.match(r.body.next_call.detail, new RegExp(`${BASE}/buy`));
-  assert.match(r.body.next_call.detail, /lists only the first 200 of the 250/);
+  assert.doesNotMatch(r.body.next_call.detail, /lists only/);
+
+  // next_call.packages is accepted as the next call's input as it stands.
+  const next = await call(clients.keyed, 'scan_lockfile_deep', { packages: r.body.next_call.packages });
+  assert.equal(next.isError, false);
+  assert.equal(seen.length, 2);
+  assert.deepEqual(JSON.parse(seen[1].body).packages, left.slice(0, 25).map((id) => {
+    const at = id.indexOf('@', 1);
+    return { name: id.slice(0, at), version: id.slice(at + 1) };
+  }));
 });
 
 test('scan_lockfile_deep: an older service with no packages list gets no next_call', async () => {

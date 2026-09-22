@@ -142,7 +142,9 @@ function toPackageRef(id) {
 
 /** When a batch left packages unscanned and the service listed them, the exact
  *  follow-up call. Re-sending the lockfile would rescan (and rebill) the same
- *  first packages, so the way on is to name the next ones. */
+ *  first packages, so the way on is to name the next ones. The service lists
+ *  every package it left, however many, and this tool takes at most
+ *  BATCH_MAX_PACKAGES per call, so next_call names only the first of them. */
 function batchContinuation(notScanned) {
   const listed = Array.isArray(notScanned?.packages)
     ? notScanned.packages.filter((p) => typeof p === 'string' && PACKAGE_ID.test(p))
@@ -156,9 +158,6 @@ function batchContinuation(notScanned) {
   const short = notScanned.by_reason?.credits;
   if (typeof short === 'number' && short > 0) {
     parts.push(`${short} of them were left because this key ran short of credits: buy more by card at ${BUY_URL} before calling again.`);
-  }
-  if (total > listed.length) {
-    parts.push(`not_scanned.packages lists only the first ${listed.length} of the ${total}.`);
   }
   return { detail: parts.join(' '), packages: listed.slice(0, BATCH_MAX_PACKAGES) };
 }
