@@ -298,6 +298,42 @@ test('find_attestation: a contradicted verdict is flagged as an error', async ()
   assert.deepEqual(r.body.contradicted, { source: 'known_bad' });
 });
 
+// The identity fallthrough: nobody attested the subject, so the service answers
+// the identity question instead. The hosted MCP server has always marked a
+// listed version as an error result; this client returned it as an ordinary
+// one, so the same lookup against the same service was loud on one transport
+// and, on the other, a `found: false` body that reads like nothing was found.
+test('find_attestation: an identity check that says MALWARE is an error, like the hosted server', async () => {
+  routes['GET /v1/attestations/*'] = () => ({
+    status: 404,
+    json: {
+      found: false,
+      subject: 'chalk@5.6.1',
+      answer: 'identity_check',
+      identity_check: { is_attestation: false, listed_as_malware: true, advisory_ids: ['MAL-2025-46969'] },
+    },
+  });
+  const r = await call(clients.none, 'find_attestation', { subject: 'chalk@5.6.1' });
+  assert.equal(r.isError, true);
+  assert.equal(r.body.found, false);
+  assert.equal(r.body.identity_check.listed_as_malware, true);
+});
+
+test('find_attestation: an identity check that found nothing stays an ordinary result', async () => {
+  for (const listed of [false, null]) {
+    routes['GET /v1/attestations/*'] = () => ({
+      status: 404,
+      json: { found: false, answer: 'identity_check', identity_check: { is_attestation: false, listed_as_malware: listed } },
+    });
+    const r = await call(clients.none, 'find_attestation', { subject: 'left-pad@1.3.0' });
+    // `null` means the corpus could not be consulted. That is unchecked, not
+    // malware, so it is not an error result; the note in the body is what says
+    // it must not be read as clear.
+    assert.equal(r.isError, false, String(listed));
+    assert.equal(r.body.identity_check.listed_as_malware, listed, String(listed));
+  }
+});
+
 test('find_attestation: a non-JSON 5xx is an error, not a verdict', async () => {
   routes['GET /v1/attestations/*'] = () => ({ status: 503, text: '<html>down</html>' });
   const r = await call(clients.none, 'find_attestation', { subject: 'chalk@5.6.1' });

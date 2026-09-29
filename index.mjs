@@ -162,7 +162,7 @@ function batchContinuation(notScanned) {
   return { detail: parts.join(' '), packages: listed.slice(0, BATCH_MAX_PACKAGES) };
 }
 
-const server = new McpServer({ name: 'lazaretto', version: '0.6.0' });
+const server = new McpServer({ name: 'lazaretto', version: '0.6.1' });
 
 /**
  * The lockfiles we will read from disk. This tool runs on the user's machine,
@@ -215,8 +215,12 @@ server.registerTool(
       '(file:, link:, workspace:, git) are counted under `skipped` rather than silently dropped.',
       '',
       'READING THE RESULT: `malicious` lists confirmed known-malware versions with advisory ids.',
-      'An empty `malicious` list is an all-clear ONLY when `unverified` is also empty: anything under',
-      '`unverified` could not be checked and must never be reported as clean.',
+      'An empty `malicious` list is an all-clear ONLY when `unverified` is also empty AND `truncated`',
+      'is false. Anything under `unverified` could not be checked and must never be reported as clean.',
+      '`truncated: true` is worse than that: the lockfile ran past the per-request package limit, and',
+      'the packages past it are in NEITHER list. They were never looked at, and `checked` counts only',
+      'the ones that were. When it is true, run this once per workspace with `path`, or pass the rest of',
+      'the tree as `lockfile` text, before telling anyone the dependencies are clean.',
     ].join('\n'),
     inputSchema: {
       path: z
@@ -342,11 +346,20 @@ server.registerTool(
       'the time it was made. An MCP server can change what it advertises with no new version, so for',
       'a server the result says how to confirm the verdict still applies.',
       '',
+      'WHEN NOBODY HAS ATTESTED IT: if the subject is an npm package identity, the answer falls back',
+      'to a free identity check against published advisories, returned as `answer: "identity_check"`',
+      'with an `identity_check` object. `found` stays false, because an identity check is NOT an',
+      'attestation: it is unsigned, it looks at the package identity rather than its code, and absence',
+      'from the advisory corpus is not a verdict on the artifact.',
+      '',
       'READING THE RESULT: check `contradicted` first: non-null means the subject is NOW a known-bad',
       'match, so a stored `clear` must not be trusted (this result is then marked as an error).',
-      '`found: false` is not a clean verdict. `stale_rules: true` means it was attested under an',
-      'older rules version, so re-scan for a current verdict. `attestation` is a compact JWS you can',
-      `verify with verify_attestation or offline against ${BASE}/.well-known/jwks.json.`,
+      '`identity_check.listed_as_malware: true` means this exact version is published as malware, and',
+      'that result is marked as an error too, so it cannot be summarised as "no attestation found".',
+      '`identity_check.listed_as_malware: null` means the corpus could not be consulted: unchecked,',
+      'never clear. `found: false` is not a clean verdict. `stale_rules: true` means it was attested',
+      'under an older rules version, so re-scan for a current verdict. `attestation` is a compact JWS',
+      `you can verify with verify_attestation or offline against ${BASE}/.well-known/jwks.json.`,
     ].join('\n'),
     inputSchema: {
       subject: z
@@ -374,7 +387,15 @@ server.registerTool(
       if (res.ok || (res.status === 404 && body?.found === false)) {
         // A contradicted verdict is surfaced as an error, as verify_attestation
         // does, so the calling model does not act on a stale clear.
-        return textResult(body, Boolean(body?.contradicted));
+        //
+        // So is a package the advisory corpus lists as malware, which arrives
+        // here when nobody has attested the subject and the identity check
+        // answers instead. The hosted server has always marked that case as an
+        // error; this one did not, so the same lookup against the same service
+        // told one client "known malware" loudly and the other quietly, and the
+        // quiet one is a `found: false` body that reads like nothing was found.
+        const known = body?.identity_check?.listed_as_malware === true;
+        return textResult(body, Boolean(body?.contradicted) || known);
       }
       const detail =
         body?.detail ??

@@ -1,6 +1,6 @@
 {
   "name": "lazaretto-mcp",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Free lockfile malware check plus paid behavioral scan of packages, agent skills and MCP tools.",
   "license": "MIT",
   "type": "module",
@@ -16,6 +16,7 @@
   "files": [
     "index.mjs",
     "README.md",
+    "llms-install.md",
     "server.json"
   ],
   "keywords": [
