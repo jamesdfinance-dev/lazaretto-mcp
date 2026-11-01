@@ -87,7 +87,8 @@ Confirm with `claude mcp list`. The entry should say `Connected`.
 
 ### Cursor
 
-Edit `~/.cursor/mcp.json` for every project, or `.cursor/mcp.json` for one:
+One click, free tools: [Add to Cursor](https://cursor.com/en/install-mcp?name=lazaretto&config=eyJ1cmwiOiJodHRwczovL2xhemFyZXR0by5kZXYvbWNwIn0%3D). To add a key, or to set it up by hand,
+edit `~/.cursor/mcp.json` for every project, or `.cursor/mcp.json` for one:
 
 ```json
 {
@@ -119,6 +120,25 @@ Drop the `headers` block if you only want the free tools. For stdio, replace
 
 Cursor reloads the file on save. Settings, MCP should list `lazaretto` with its
 tools.
+
+### Gemini CLI
+
+Install it as an extension. This adds the hosted server with its free tools and
+a short GEMINI.md telling the agent when to check:
+
+```sh
+gemini extensions install https://github.com/jamesdfinance-dev/lazaretto-mcp
+```
+
+The metered tools need a key, which the extension does not send. For those, add
+the server directly instead:
+
+```sh
+gemini mcp add -s user --transport http --header "X-API-Key: YOUR_KEY" lazaretto https://lazaretto.dev/mcp
+```
+
+Use the key itself, not `$LAZARETTO_API_KEY`: Gemini CLI removes environment
+variables whose names contain KEY or TOKEN before it expands headers.
 
 ### Cline
 
