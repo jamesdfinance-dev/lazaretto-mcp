@@ -70,6 +70,21 @@ jobs:
             echo "server.json says npm $SRV but package.json is $PKG"; exit 1
           fi
 
+      # npm's public index lags a fresh publish by a minute or more, and the
+      # MCP registry rejects a version it cannot see yet. Both v0.6.0 and
+      # v0.6.1 failed here for that reason alone and needed a manual re-run.
+      - name: Wait until npm serves this version
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          for i in $(seq 1 40); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$NAME/$VERSION")" = "200" ]; then
+              echo "npm serves $NAME@$VERSION"; exit 0
+            fi
+            sleep 15
+          done
+          echo "npm still does not serve $NAME@$VERSION after 10 minutes"; exit 1
+
       - name: Install mcp-publisher
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
