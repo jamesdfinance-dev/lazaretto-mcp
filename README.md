@@ -27,11 +27,13 @@ straight-line procedure.
 | Install | nothing | Node 20 or newer |
 | Key goes in | the `X-API-Key` header | the `LAZARETTO_API_KEY` env var |
 | Get a free key in-session | yes, the `get_free_key` tool | no, `curl` the trial endpoint |
+| Find a server for a job | yes, the `find_mcp_servers` tool | no |
 | Reads your lockfile off disk | no, you pass the text | yes, from the working directory |
 | Needs a client that speaks Streamable HTTP | yes | no |
 
-The same eight tools are on both. The hosted server adds a ninth, `get_free_key`,
-which mints a free developer key without leaving the session. Pick the hosted one
+The same eight tools are on both. The hosted server adds two free ones:
+`find_mcp_servers`, which finds a server for a job in the official MCP registry,
+and `get_free_key`, which mints a free developer key in the session. Pick the hosted one
 unless your client has no remote-server support, or you want `check_lockfile` to
 read the lockfile off disk so a large tree never passes through the model
 context.
@@ -175,7 +177,8 @@ stdio:
 ```
 
 Both key fields are optional. Without one, the free tools work (four on the
-stdio package, five on the hosted server, which adds `get_free_key`) and the
+stdio package, six on the hosted server, which adds `get_free_key` and
+`find_mcp_servers`) and the
 four metered ones return a message telling you how to get credits.
 
 ## The first call to try
@@ -251,6 +254,10 @@ Free, no key, no account:
 
 Free, hosted server only:
 
+- `find_mcp_servers`, which finds remote servers in the official MCP registry
+  for a job ("postgres", "send slack messages"), each with its endpoint, tools,
+  the command to add it, and our weekly read. Servers we flagged or could not
+  reach are left out.
 - `get_free_key`, which mints a developer key with a small daily allowance that
   refills each day. No payment, no account, no card. It is shown once, so store
   it. Throttled to one key per source per window.

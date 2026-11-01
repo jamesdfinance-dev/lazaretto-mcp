@@ -6,14 +6,16 @@ you can decide yourself.
 
 Lazaretto checks npm packages, AI agent skills and MCP tools before they are
 installed or connected. Four tools are free with no account on the stdio
-package, five on the hosted server, which adds `get_free_key`. Four more are
+package, six on the hosted server, which adds `get_free_key` and
+`find_mcp_servers`. Four more are
 metered against a key.
 
 ## Step 1: pick a transport
 
 **Default to the hosted server at `https://lazaretto.dev/mcp`.** Nothing to
-install, and it has one extra tool (`get_free_key`) that mints a free key
-without leaving the session.
+install, and it has two extra free tools: `find_mcp_servers`, which finds a
+server for a job in the official MCP registry, and `get_free_key`, which mints
+a free key without leaving the session.
 
 Choose the stdio package instead if either is true:
 
@@ -227,6 +229,7 @@ Free, no key, no account:
 - `find_attestation`
 - `verify_attestation`
 - `get_free_key` (hosted server only)
+- `find_mcp_servers` (hosted server only)
 
 Metered, one credit per verdict and nothing on an error:
 
