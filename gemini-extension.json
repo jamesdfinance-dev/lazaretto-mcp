@@ -1,6 +1,6 @@
 {
   "name": "lazaretto",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Check a package, MCP server or agent skill before your agent installs it: free lockfile malware check, known-bad lookups, and a finder for MCP servers.",
   "mcpServers": {
     "lazaretto": {
