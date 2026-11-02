@@ -162,7 +162,7 @@ function batchContinuation(notScanned) {
   return { detail: parts.join(' '), packages: listed.slice(0, BATCH_MAX_PACKAGES) };
 }
 
-const server = new McpServer({ name: 'lazaretto', version: '0.6.2' });
+const server = new McpServer({ name: 'lazaretto', version: '0.6.4' });
 
 /**
  * The lockfiles we will read from disk. This tool runs on the user's machine,

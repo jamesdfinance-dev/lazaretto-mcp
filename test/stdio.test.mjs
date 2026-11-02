@@ -5,7 +5,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -120,6 +120,15 @@ const x402Challenge = () => ({
   accepts: [{ scheme: 'exact', network: 'base', maxAmountRequired: '10000', payTo: '0xabc' }],
   extensions: { bazaar: { info: {} } },
   hint: { message: 'Payment required.', free_trial: 'POST /v1/trial' },
+});
+
+// ---- the version a client sees ----------------------------------------------
+
+// The version lives in both files, and 0.6.3 went out announcing 0.6.2. The
+// publish job runs this suite first, so a bump to one file alone stops there.
+test('the server announces the version in package.json', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(clients.none.getServerVersion().version, pkg.version);
 });
 
 // ---- no key, blank key ------------------------------------------------------
