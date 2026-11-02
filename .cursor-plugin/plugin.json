@@ -1,0 +1,11 @@
+{
+  "name": "lazaretto",
+  "description": "Check a package, MCP server or agent skill before your agent installs it: free lockfile malware check, known-bad lookups, and a finder for MCP servers.",
+  "version": "0.6.1",
+  "author": { "name": "Lazaretto", "url": "https://lazaretto.dev" },
+  "homepage": "https://lazaretto.dev",
+  "repository": "https://github.com/jamesdfinance-dev/lazaretto-mcp",
+  "license": "MIT",
+  "keywords": ["security", "malware", "supply-chain", "mcp", "tool-poisoning", "npm", "lockfile"],
+  "logo": "https://lazaretto.dev/icon.png"
+}
