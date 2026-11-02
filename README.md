@@ -11,7 +11,7 @@ free lockfile check matches every exactly pinned dependency against OSV and
 OpenSSF malicious-package advisories, with no account. A metered scan adds
 behavioral analysis with file-and-line evidence.
 
-This package is a thin front end for the [Lazaretto](https://lazaretto.dev)
+This package is a thin front end for the [Lazaretto](https://lazaretto.ai)
 API. It ships no detection logic and does nothing but make HTTPS requests, so
 it is short enough to read end to end.
 
