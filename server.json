@@ -3,7 +3,7 @@
   "name": "io.github.jamesdfinance-dev/lazaretto",
   "title": "Lazaretto",
   "description": "Free lockfile malware check plus paid behavioral scan of packages, agent skills and MCP tools.",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "repository": {
     "url": "https://github.com/jamesdfinance-dev/lazaretto-mcp",
     "source": "github"
@@ -12,7 +12,7 @@
     {
       "registryType": "npm",
       "identifier": "lazaretto-mcp",
-      "version": "0.6.2",
+      "version": "0.6.3",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -41,7 +41,7 @@
       ]
     }
   ],
-  "websiteUrl": "https://lazaretto.dev",
+  "websiteUrl": "https://lazaretto.ai",
   "icons": [
     {
       "src": "https://lazaretto.dev/icon.png",
