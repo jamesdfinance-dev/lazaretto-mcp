@@ -12,7 +12,7 @@ metered against a key.
 
 ## Step 1: pick a transport
 
-**Default to the hosted server at `https://lazaretto.dev/mcp`.** Nothing to
+**Default to the hosted server at `https://lazaretto.dev/mcp?ref=npm`.** Nothing to
 install, and it has two extra free tools: `find_mcp_servers`, which finds a
 server for a job in the official MCP registry, and `get_free_key`, which mints
 a free key without leaving the session.
@@ -29,7 +29,7 @@ choosing it.
 ## Step 2: write the config
 
 Use the block for the client you are in. `YOUR_KEY` is optional everywhere: with
-no key the free tools work (four on stdio, five on the hosted server) and the
+no key the free tools work (four on stdio, six on the hosted server) and the
 metered ones return a message instead of doing anything. If the developer has not given you a key, leave the key field out
 entirely rather than writing a placeholder into their config.
 
@@ -38,13 +38,13 @@ entirely rather than writing a placeholder into their config.
 Hosted:
 
 ```bash
-claude mcp add --transport http lazaretto https://lazaretto.dev/mcp
+claude mcp add --transport http lazaretto "https://lazaretto.dev/mcp?ref=npm"
 ```
 
 Hosted with a key:
 
 ```bash
-claude mcp add --transport http lazaretto https://lazaretto.dev/mcp \
+claude mcp add --transport http lazaretto "https://lazaretto.dev/mcp?ref=npm" \
   --header "X-API-Key: YOUR_KEY"
 ```
 
@@ -61,7 +61,7 @@ To check the config into the repo instead, write `.mcp.json` at the repo root:
   "mcpServers": {
     "lazaretto": {
       "type": "http",
-      "url": "https://lazaretto.dev/mcp"
+      "url": "https://lazaretto.dev/mcp?ref=npm"
     }
   }
 }
@@ -86,7 +86,7 @@ Hosted:
 {
   "mcpServers": {
     "lazaretto": {
-      "url": "https://lazaretto.dev/mcp",
+      "url": "https://lazaretto.dev/mcp?ref=npm",
       "headers": { "X-API-Key": "YOUR_KEY" }
     }
   }
@@ -122,7 +122,7 @@ offer, and the connection fails.
   "mcpServers": {
     "lazaretto": {
       "type": "streamableHttp",
-      "url": "https://lazaretto.dev/mcp",
+      "url": "https://lazaretto.dev/mcp?ref=npm",
       "headers": { "X-API-Key": "YOUR_KEY" },
       "disabled": false,
       "autoApprove": ["check_lockfile", "known_bad_lookup", "find_attestation", "verify_attestation"]
@@ -145,7 +145,7 @@ Hosted:
 {
   "mcpServers": {
     "lazaretto": {
-      "url": "https://lazaretto.dev/mcp",
+      "url": "https://lazaretto.dev/mcp?ref=npm",
       "headers": { "X-API-Key": "YOUR_KEY" }
     }
   }
@@ -291,7 +291,7 @@ Do not tell the developer this package can pay as it goes. It cannot.
 | Symptom | Fix |
 | --- | --- |
 | No Lazaretto tools in the client | Reload or restart the client. Confirm the JSON parses and `lazaretto` is inside `mcpServers`. |
-| stdio server will not start | Run `npx -y lazaretto-mcp` in a terminal. It should start and wait on stdin with no output. If not, check `node --version` is 20 or newer. |
+| stdio server will not start | Run `npx -y lazaretto-mcp` in a terminal. It should print a short note saying it is an MCP server, then wait. If not, check `node --version` is 20 or newer. |
 | Every metered tool says it needs credits | The key is missing or was not accepted. The env var is exactly `LAZARETTO_API_KEY`, the header exactly `X-API-Key`. |
 | `check_lockfile` cannot read a lockfile | It reads only `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock` and `pnpm-lock.yaml`, relative to the working directory. Pass `path` for a monorepo, for example `apps/web/pnpm-lock.yaml`. |
 | Rate limited | The free check allows a small number per minute per IP. Wait and call again. |

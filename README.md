@@ -5,6 +5,28 @@
 
 Know what a package does before you install it.
 
+## Quick start
+
+No account and no key. In Claude Code:
+
+```bash
+claude mcp add --transport http lazaretto "https://lazaretto.dev/mcp?ref=npm"
+```
+
+Then, in a project with a lockfile, ask your agent for the free check:
+
+> Use the lazaretto `check_lockfile` tool to check this project's dependencies.
+
+In any other client, add `https://lazaretto.dev/mcp?ref=npm` as a remote MCP
+server. If your client only runs local servers, make `npx -y lazaretto-mcp` the
+command, which needs Node 20 or newer. [Set it up](#set-it-up) has the exact steps
+for Cursor, Gemini CLI and Cline.
+
+`ref=npm` only tells us this page is where you found it. Leave it off and nothing
+changes.
+
+## What it is
+
 An [MCP](https://modelcontextprotocol.io) server for Lazaretto: deterministic
 pre-install verification for npm packages, AI agent skills and MCP tools. The
 free lockfile check matches every exactly pinned dependency against OSV and
@@ -13,7 +35,8 @@ behavioral analysis with file-and-line evidence.
 
 This package is a thin front end for the [Lazaretto](https://lazaretto.ai)
 API. It ships no detection logic and does nothing but make HTTPS requests, so
-it is short enough to read end to end.
+it is short enough to read end to end. Each request names this package in its
+`User-Agent` header, so we can tell how much use comes through it.
 
 Setting this up as an agent, with no other context? Read
 [llms-install.md](llms-install.md) instead. It is the same information as a
@@ -23,7 +46,7 @@ straight-line procedure.
 
 | | Hosted (recommended) | stdio package |
 | --- | --- | --- |
-| Endpoint | `https://lazaretto.dev/mcp` | `npx -y lazaretto-mcp` |
+| Endpoint | `https://lazaretto.dev/mcp?ref=npm` | `npx -y lazaretto-mcp` |
 | Install | nothing | Node 20 or newer |
 | Key goes in | the `X-API-Key` header | the `LAZARETTO_API_KEY` env var |
 | Get a free key in-session | yes, the `get_free_key` tool | no, `curl` the trial endpoint |
@@ -45,13 +68,13 @@ context.
 Hosted, one command:
 
 ```bash
-claude mcp add --transport http lazaretto https://lazaretto.dev/mcp
+claude mcp add --transport http lazaretto "https://lazaretto.dev/mcp?ref=npm"
 ```
 
 With a key for the metered tools:
 
 ```bash
-claude mcp add --transport http lazaretto https://lazaretto.dev/mcp \
+claude mcp add --transport http lazaretto "https://lazaretto.dev/mcp?ref=npm" \
   --header "X-API-Key: YOUR_KEY"
 ```
 
@@ -71,7 +94,7 @@ instead of running the command:
   "mcpServers": {
     "lazaretto": {
       "type": "http",
-      "url": "https://lazaretto.dev/mcp"
+      "url": "https://lazaretto.dev/mcp?ref=npm"
     }
   }
 }
@@ -87,14 +110,14 @@ Confirm with `claude mcp list`. The entry should say `Connected`.
 
 ### Cursor
 
-One click, free tools: [Add to Cursor](https://cursor.com/en/install-mcp?name=lazaretto&config=eyJ1cmwiOiJodHRwczovL2xhemFyZXR0by5kZXYvbWNwIn0%3D). To add a key, or to set it up by hand,
+One click, free tools: [Add to Cursor](https://cursor.com/install-mcp?name=lazaretto&config=eyJ1cmwiOiJodHRwczovL2xhemFyZXR0by5kZXYvbWNwP3JlZj1ucG0ifQ%3D%3D). To add a key, or to set it up by hand,
 edit `~/.cursor/mcp.json` for every project, or `.cursor/mcp.json` for one:
 
 ```json
 {
   "mcpServers": {
     "lazaretto": {
-      "url": "https://lazaretto.dev/mcp",
+      "url": "https://lazaretto.dev/mcp?ref=npm",
       "headers": {
         "X-API-Key": "YOUR_KEY"
       }
@@ -134,11 +157,14 @@ The metered tools need a key, which the extension does not send. For those, add
 the server directly instead:
 
 ```sh
-gemini mcp add -s user --transport http --header "X-API-Key: YOUR_KEY" lazaretto https://lazaretto.dev/mcp
+gemini mcp add -s user --transport http --header "X-API-Key: YOUR_KEY" lazaretto "https://lazaretto.dev/mcp?ref=npm"
 ```
 
-Use the key itself, not `$LAZARETTO_API_KEY`: Gemini CLI removes environment
-variables whose names contain KEY or TOKEN before it expands headers.
+Use the key itself, not `$LAZARETTO_API_KEY`: Gemini CLI redacts environment
+variables whose names contain KEY or TOKEN.
+
+Google's docs say unpaid and Google One accounts moved from Gemini CLI to
+Antigravity CLI on June 18, 2026. We have not tested Antigravity CLI.
 
 ### Cline
 
@@ -152,7 +178,7 @@ not offer.
   "mcpServers": {
     "lazaretto": {
       "type": "streamableHttp",
-      "url": "https://lazaretto.dev/mcp",
+      "url": "https://lazaretto.dev/mcp?ref=npm",
       "headers": { "X-API-Key": "YOUR_KEY" },
       "disabled": false,
       "autoApprove": ["check_lockfile", "known_bad_lookup", "find_attestation", "verify_attestation"]
@@ -162,9 +188,9 @@ not offer.
 ```
 
 `autoApprove` lists only free tools on purpose, so nothing that spends
-credits runs without you seeing it. The hosted server has a fifth free tool,
-`get_free_key`; it is left out of the list because minting a key is worth
-watching happen. Drop the `headers` block if you only want the free tools. For stdio, swap `url` and `headers` for `command`, `args` and
+credits runs without you seeing it. The hosted server has two more free tools,
+`find_mcp_servers` and `get_free_key`. They are left out so that a search or a new
+key is something you see happen. Drop the `headers` block if you only want the free tools. For stdio, swap `url` and `headers` for `command`, `args` and
 `env` exactly as in the Cursor example above.
 
 ### Any other MCP client
@@ -175,7 +201,7 @@ Remote (Streamable HTTP):
 {
   "mcpServers": {
     "lazaretto": {
-      "url": "https://lazaretto.dev/mcp",
+      "url": "https://lazaretto.dev/mcp?ref=npm",
       "headers": { "X-API-Key": "YOUR_KEY" }
     }
   }
@@ -276,8 +302,8 @@ Free, hosted server only:
 
 - `find_mcp_servers`, which finds remote servers in the official MCP registry
   for a job ("postgres", "send slack messages"), each with its endpoint, tools,
-  the command to add it, and our weekly read. Servers we flagged or could not
-  reach are left out.
+  the command to add it, and our latest read (we re-read each server about every
+  two weeks). Servers we flagged or could not reach are left out.
 - `get_free_key`, which mints a developer key with a small daily allowance that
   refills each day. No payment, no account, no card. It is shown once, so store
   it. Throttled to one key per source per window.
@@ -427,8 +453,8 @@ match and no rule fired. It is not a statement about risk.
 ## When it does not work
 
 - **The client shows no tools.** For stdio, run `npx -y lazaretto-mcp` in a
-  terminal. It should start and wait on stdin with no output. If npx cannot
-  find it, check `node --version` is 20 or newer.
+  terminal. It should print a short note saying it is an MCP server, then wait.
+  If npx cannot find it, check `node --version` is 20 or newer.
 - **Every metered tool says it needs credits.** The key is missing or was not
   accepted. Check the env var name is exactly `LAZARETTO_API_KEY`, or the header
   is exactly `X-API-Key`.

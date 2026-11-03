@@ -1,7 +1,7 @@
 {
   "name": "lazaretto-mcp",
-  "version": "0.6.4",
-  "description": "Free lockfile malware check plus paid behavioral scan of packages, agent skills and MCP tools.",
+  "version": "0.6.5",
+  "description": "Supply chain security: free npm lockfile malware check, paid scan of packages, skills, MCP servers.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -21,10 +21,17 @@
   ],
   "keywords": [
     "mcp",
+    "mcp-server",
     "modelcontextprotocol",
+    "model-context-protocol",
     "security",
     "supply-chain",
+    "supply-chain-security",
+    "npm-security",
     "malware",
+    "malware-detection",
+    "claude",
+    "cursor",
     "skill",
     "npm",
     "verify",

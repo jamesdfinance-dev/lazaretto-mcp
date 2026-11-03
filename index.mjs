@@ -30,6 +30,11 @@ const BASE = (process.env.LAZARETTO_BASE_URL ?? 'https://lazaretto.dev').replace
 const API_KEY = process.env.LAZARETTO_API_KEY?.trim() || undefined;
 // Where a person buys credits. The key belongs to the same deployment as BASE.
 const BUY_URL = `${BASE}/buy`;
+// Every request names this package, so use that comes through npm can be told
+// apart from any other Node client. Nothing else about the caller is added.
+const USER_AGENT = 'lazaretto-mcp';
+const api = (path, init = {}) =>
+  fetch(`${BASE}${path}`, { ...init, headers: { 'user-agent': USER_AGENT, ...init.headers } });
 const HOW_TO_GET_A_KEY =
   `Set LAZARETTO_API_KEY to a key holding credits. Buy credits at ${BUY_URL}, ` +
   `or get a free key with a small daily allowance with POST ${BASE}/v1/trial.`;
@@ -105,7 +110,7 @@ function failureDetail(res, body, tooLarge) {
  *  target they send and the words at the paywall. */
 async function paidScan(payload, paywallLead) {
   try {
-    const res = await fetch(`${BASE}/v1/scan`, {
+    const res = await api('/v1/scan', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(API_KEY ? { 'x-api-key': API_KEY } : {}) },
       body: JSON.stringify(payload),
@@ -162,7 +167,7 @@ function batchContinuation(notScanned) {
   return { detail: parts.join(' '), packages: listed.slice(0, BATCH_MAX_PACKAGES) };
 }
 
-const server = new McpServer({ name: 'lazaretto', version: '0.6.4' });
+const server = new McpServer({ name: 'lazaretto', version: '0.6.5' });
 
 /**
  * The lockfiles we will read from disk. This tool runs on the user's machine,
@@ -252,7 +257,7 @@ server.registerTool(
       source = found.path;
     }
     try {
-      const res = await fetch(`${BASE}/v1/lockfile`, {
+      const res = await api('/v1/lockfile', {
         method: 'POST',
         headers: { 'content-type': 'text/plain' },
         body: text,
@@ -316,7 +321,7 @@ server.registerTool(
   async ({ sha256 }) => {
     const hash = sha256.replace(/^sha256:/i, '').toLowerCase();
     try {
-      const res = await fetch(`${BASE}/v1/known-bad/${hash}`);
+      const res = await api(`/v1/known-bad/${hash}`);
       return textResult(await res.json());
     } catch (e) {
       return textResult({ error: 'request_failed', detail: String(e?.message ?? e) });
@@ -380,7 +385,7 @@ server.registerTool(
     const hex = subject.match(/^(?:sha256:)?([0-9a-fA-F]{64})$/i);
     const key = hex ? `sha256:${hex[1].toLowerCase()}` : subject;
     try {
-      const res = await fetch(`${BASE}/v1/attestations/${encodeURIComponent(key)}`);
+      const res = await api(`/v1/attestations/${encodeURIComponent(key)}`);
       const body = await readJson(res);
       // A 404 carrying found:false is the ordinary "nobody has attested this"
       // answer, not a failure.
@@ -450,7 +455,7 @@ server.registerTool(
   },
   async ({ attestation }) => {
     try {
-      const res = await fetch(`${BASE}/v1/verify`, {
+      const res = await api('/v1/verify', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ attestation }),
@@ -648,7 +653,7 @@ server.registerTool(
       request = { headers: { 'content-type': 'text/plain', 'x-api-key': API_KEY }, body: text };
     }
     try {
-      const res = await fetch(`${BASE}/v1/scan/batch`, { method: 'POST', ...request });
+      const res = await api('/v1/scan/batch', { method: 'POST', ...request });
       const body = await readJson(res);
       if (res.ok && body) {
         const next = batchContinuation(body.not_scanned);
@@ -761,6 +766,28 @@ server.registerTool(
   async ({ tools_json }) =>
     paidScan({ target: { type: 'mcp_tools', content: tools_json }, depth: 'full' }, 'Checking tool definitions is paid.'),
 );
+
+// Run by hand in a terminal, an MCP server looks hung: it waits on stdin and
+// prints nothing. A client connects over pipes, so only a person sees this, and
+// it goes to stderr because stdout belongs to the protocol.
+if (process.stdin.isTTY) {
+  process.stderr.write(
+    [
+      'lazaretto-mcp is an MCP server. Your AI client starts it, so nothing else happens here.',
+      '',
+      'To add it to Claude Code:',
+      '  claude mcp add lazaretto -- npx -y lazaretto-mcp',
+      '',
+      'Other clients: https://github.com/jamesdfinance-dev/lazaretto-mcp#set-it-up',
+      '',
+      'To check a lockfile now, with no client and no key:',
+      `  curl -s ${BASE}/check --data-binary @package-lock.json`,
+      '',
+      'Press Ctrl-C to stop.',
+      '',
+    ].join('\n'),
+  );
+}
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

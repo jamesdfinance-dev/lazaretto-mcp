@@ -4,6 +4,7 @@
 // (LAZARETTO_BASE_URL). Nothing here touches the network.
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -129,6 +130,62 @@ const x402Challenge = () => ({
 test('the server announces the version in package.json', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(clients.none.getServerVersion().version, pkg.version);
+});
+
+// ---- what a request says about the caller ------------------------------------
+
+test('a request names this package, and every request goes through the one helper', async () => {
+  routes['GET /v1/known-bad/*'] = () => ({ status: 200, json: { known_bad: { matched: false } } });
+  await call(clients.none, 'known_bad_lookup', { sha256: 'a'.repeat(64) });
+  assert.equal(seen.at(-1).headers['user-agent'], 'lazaretto-mcp');
+  assert.equal(readFileSync(INDEX, 'utf8').match(/\bfetch\(/g).length, 1);
+});
+
+// ---- run by hand in a terminal -----------------------------------------------
+
+/** Start the server, optionally faking a terminal on stdin, and collect output. */
+function startServer(nodeArgs = []) {
+  const child = spawn(process.execPath, [...nodeArgs, INDEX], {
+    cwd: workdir,
+    env: { PATH: process.env.PATH, LAZARETTO_BASE_URL: BASE },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const out = { stdout: '', stderr: '' };
+  child.stdout.on('data', (d) => { out.stdout += d; });
+  child.stderr.on('data', (d) => { out.stderr += d; });
+  const until = async (ready) => {
+    for (let i = 0; i < 200 && !ready(); i++) await new Promise((r) => setTimeout(r, 25));
+    assert.ok(ready(), `timed out; stdout ${JSON.stringify(out.stdout)}, stderr ${JSON.stringify(out.stderr)}`);
+  };
+  return { child, out, until };
+}
+
+test('in a terminal it says what it is on stderr, and stdout stays empty for the protocol', async () => {
+  const { child, out, until } = startServer(['--import', 'data:text/javascript,process.stdin.isTTY=true']);
+  try {
+    await until(() => out.stderr.includes('Press Ctrl-C'));
+    assert.match(out.stderr, /is an MCP server/);
+    assert.match(out.stderr, /claude mcp add lazaretto -- npx -y lazaretto-mcp/);
+    assert.equal(out.stdout, '');
+  } finally {
+    child.kill();
+  }
+});
+
+test('under a client, which connects over pipes, it prints nothing but the protocol', async () => {
+  const { child, out, until } = startServer();
+  try {
+    child.stdin.write(`${JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'pipe-test', version: '0' } },
+    })}\n`);
+    await until(() => out.stdout.includes('"id":1'));
+    assert.equal(out.stderr, '');
+  } finally {
+    child.kill();
+  }
 });
 
 // ---- no key, blank key ------------------------------------------------------
