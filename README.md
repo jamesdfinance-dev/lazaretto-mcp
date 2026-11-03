@@ -20,7 +20,8 @@ Then, in a project with a lockfile, ask your agent for the free check:
 In any other client, add `https://lazaretto.dev/mcp?ref=npm` as a remote MCP
 server. If your client only runs local servers, make `npx -y lazaretto-mcp` the
 command, which needs Node 20 or newer. [Set it up](#set-it-up) has the exact steps
-for Cursor, Gemini CLI and Cline.
+for Cursor, Gemini CLI and Cline, and [lazaretto.dev/add](https://lazaretto.dev/add)
+covers more clients.
 
 `ref=npm` only tells us this page is where you found it. Leave it off and nothing
 changes.
@@ -54,7 +55,17 @@ straight-line procedure.
 | Reads your lockfile off disk | no, you pass the text | yes, from the working directory |
 | Needs a client that speaks Streamable HTTP | yes | no |
 
-The same eight tools are on both. The hosted server adds two free ones:
+Eight tools are on both. Their arguments match except for these:
+
+| Tool | stdio package | Hosted |
+| --- | --- | --- |
+| `check_lockfile`, `scan_lockfile_deep` | also take `path`, a lockfile on disk | no `path` |
+| `scan_artifact` | `target_type` | `type`, plus `name` for inline content |
+
+The stdio package refuses an argument a tool does not take, and says what it does
+take.
+
+The hosted server adds two free tools:
 `find_mcp_servers`, which finds a server for a job in the official MCP registry,
 and `get_free_key`, which mints a free developer key in the session. Pick the hosted one
 unless your client has no remote-server support, or you want `check_lockfile` to
@@ -163,8 +174,10 @@ gemini mcp add -s user --transport http --header "X-API-Key: YOUR_KEY" lazaretto
 Use the key itself, not `$LAZARETTO_API_KEY`: Gemini CLI redacts environment
 variables whose names contain KEY or TOKEN.
 
-Google's docs say unpaid and Google One accounts moved from Gemini CLI to
-Antigravity CLI on June 18, 2026. We have not tested Antigravity CLI.
+Google moved individual accounts from Gemini CLI to Antigravity CLI on June 18,
+2026. Gemini CLI still serves paid API keys and Code Assist Standard or Enterprise.
+We have not tested Antigravity CLI. [lazaretto.dev/add](https://lazaretto.dev/add)
+has its steps.
 
 ### Cline
 
@@ -236,8 +249,9 @@ From a project that has a lockfile, ask your agent:
 On the stdio server, call it with no arguments: it finds `package-lock.json`,
 `npm-shrinkwrap.json`, `yarn.lock` or `pnpm-lock.yaml` in the working directory
 by itself. The hosted server cannot read your disk, so pass the lockfile text as
-`lockfile`, or a list of `"name@version"` strings as `packages` when a whole
-tree would not fit in context. Give one or the other, never both.
+`lockfile`. On either server, pass a list of `"name@version"` strings as
+`packages` to ask about specific versions, or when a whole tree would not fit in
+context. Give one or the other, never both.
 
 A result with one known-malware version in the tree looks like this (the stdio
 server adds `source`, naming the file it read; the hosted one has no `source`
@@ -348,6 +362,10 @@ versions can be answered: a range like `^5.0.0` has no definitive answer,
 because a compromised release usually sits between clean ones. Entries with no
 published registry identity (`file:`, `link:`, `workspace:`, git) are counted
 under `skipped` rather than dropped.
+
+Give `packages`, a list of `name@version` strings, to ask about specific versions
+instead. A result with anything under `malicious` comes back marked as an error, so
+an agent acts on it rather than summarising it.
 
 An empty `malicious` list is an all-clear only when `unverified` is also empty
 and `truncated` is `false`. A `truncated` result dropped everything past the

@@ -190,7 +190,10 @@ check_lockfile
 ```
 
 with no arguments if you are on stdio, or with the project lockfile text as
-`lockfile` if you are on the hosted server. A result with one known-malware
+`lockfile` if you are on the hosted server. On either, pass `packages`, a list of
+`name@version` strings, instead to ask about specific versions. A result with
+anything under `malicious` comes back marked as an error, so act on it. A result
+with one known-malware
 version in the tree looks like this. `source` is present only on stdio, naming
 the file it read:
 
@@ -221,6 +224,11 @@ Report the result to the developer. Say which transport you configured, which
 file you wrote, and whether a key is in place.
 
 ## What costs money
+
+Arguments match on both servers except for these: `check_lockfile` and
+`scan_lockfile_deep` also take `path` on stdio, and `scan_artifact` takes
+`target_type` on stdio but `type` on the hosted server, which also takes `name` for
+inline content. The stdio package refuses an argument a tool does not take.
 
 Free, no key, no account:
 

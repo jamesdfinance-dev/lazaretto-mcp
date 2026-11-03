@@ -1,6 +1,6 @@
 {
   "name": "lazaretto-mcp",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Supply chain security: free npm lockfile malware check, paid scan of packages, skills, MCP servers.",
   "license": "MIT",
   "type": "module",

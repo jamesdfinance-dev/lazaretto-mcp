@@ -132,6 +132,115 @@ test('the server announces the version in package.json', () => {
   assert.equal(clients.none.getServerVersion().version, pkg.version);
 });
 
+// ---- check_lockfile answers what it was asked ---------------------------------
+
+const LISTED = { name: 'chalk', version: '5.6.1', ids: ['MAL-2025-46969'] };
+const lockfileAnswer = (malicious = []) => ({ status: 200, json: { checked: 1, format: 'explicit', malicious, unverified: [], truncated: false } });
+
+test('check_lockfile with packages asks about those, and reads no lockfile', async () => {
+  routes['POST /v1/lockfile'] = () => lockfileAnswer([LISTED]);
+  const r = await call(clients.none, 'check_lockfile', { packages: ['chalk@5.6.1', '@babel/core@7.24.0'] });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].headers['content-type'], 'application/json');
+  assert.deepEqual(JSON.parse(seen[0].body), {
+    packages: [{ name: 'chalk', version: '5.6.1' }, { name: '@babel/core', version: '7.24.0' }],
+  });
+  assert.equal(r.body.source, '(packages input)');
+  assert.deepEqual(r.body.malicious, [LISTED]);
+});
+
+test('check_lockfile refuses packages alongside a lockfile or a path, and sends nothing', async () => {
+  for (const other of [{ lockfile: LOCKFILE }, { path: 'package-lock.json' }]) {
+    const r = await call(clients.none, 'check_lockfile', { packages: ['chalk@5.6.1'], ...other });
+    assert.equal(r.isError, true);
+    assert.equal(r.body.error, 'ambiguous_input');
+    assert.equal(r.body.not_an_all_clear, true);
+  }
+  assert.equal(seen.length, 0);
+});
+
+test('check_lockfile refuses an entry that is not name@version, and sends nothing', async () => {
+  await rejects(clients.none, 'check_lockfile', { packages: ['chalk'] });
+  await rejects(clients.none, 'check_lockfile', { packages: [] });
+  assert.equal(seen.length, 0);
+});
+
+test('check_lockfile marks a malware hit as an error, and a clean answer as not', async () => {
+  routes['POST /v1/lockfile'] = () => lockfileAnswer([LISTED]);
+  assert.equal((await call(clients.none, 'check_lockfile', {})).isError, true);
+  routes['POST /v1/lockfile'] = () => lockfileAnswer();
+  assert.equal((await call(clients.none, 'check_lockfile', {})).isError, false);
+});
+
+test('check_lockfile marks every failure as an error, so none reads as clean', async () => {
+  routes['POST /v1/lockfile'] = () => ({ status: 500, text: 'down' });
+  const down = await call(clients.none, 'check_lockfile', {});
+  assert.equal(down.isError, true);
+  assert.equal(down.body.not_an_all_clear, true);
+  routes['POST /v1/lockfile'] = () => ({ status: 429, json: { error: 'rate_limited', detail: 'Wait.' } });
+  assert.equal((await call(clients.none, 'check_lockfile', {})).isError, true);
+  const missing = await call(clients.none, 'check_lockfile', { path: 'apps/web/yarn.lock' });
+  assert.equal(missing.isError, true);
+  assert.equal(missing.body.error, 'lockfile_not_read');
+});
+
+test('known_bad_lookup marks a lookup that could not run as an error, and a miss as not', async () => {
+  const sha256 = 'a'.repeat(64);
+  routes['GET /v1/known-bad/*'] = () => ({ status: 200, json: { known_bad: { matched: null, note: 'unavailable' } } });
+  assert.equal((await call(clients.none, 'known_bad_lookup', { sha256 })).isError, true);
+  routes['GET /v1/known-bad/*'] = () => ({ status: 429, json: { error: 'rate_limited' } });
+  assert.equal((await call(clients.none, 'known_bad_lookup', { sha256 })).isError, true);
+  routes['GET /v1/known-bad/*'] = () => ({ status: 200, json: { known_bad: { matched: false } } });
+  assert.equal((await call(clients.none, 'known_bad_lookup', { sha256 })).isError, false);
+});
+
+// ---- an argument a tool does not take -----------------------------------------
+
+/** The refusal text, whether the SDK answers with an error result or throws. */
+async function refusal(name, args) {
+  try {
+    const r = await clients.none.callTool({ name, arguments: args });
+    assert.equal(r.isError, true, `expected ${name} to refuse ${JSON.stringify(args)}`);
+    return r.content?.[0]?.text ?? '';
+  } catch (e) {
+    return String(e?.message ?? e);
+  }
+}
+
+test('every tool refuses an argument it does not take, names it, and says what it takes', async () => {
+  const valid = {
+    check_lockfile: [{}, 'path, lockfile, packages'],
+    known_bad_lookup: [{ sha256: 'a'.repeat(64) }, 'sha256'],
+    find_attestation: [{ subject: 'chalk@5.6.1' }, 'subject'],
+    verify_attestation: [{ attestation: 'a.b.c' }, 'attestation'],
+    scan_artifact: [{ target_type: 'npm_package', ref: 'chalk@5.6.1' }, 'target_type, ref, content, depth'],
+    scan_lockfile_deep: [{ packages: ['chalk@5.6.1'] }, 'packages, path, lockfile'],
+    scan_mcp_server: [{ url: 'https://example.com/mcp' }, 'url'],
+    check_mcp_tools: [{ tools_json: '[]' }, 'tools_json'],
+  };
+  const { tools } = await clients.none.listTools();
+  assert.deepEqual(Object.keys(valid).sort(), tools.map((t) => t.name).sort());
+  for (const [name, [args, takes]] of Object.entries(valid)) {
+    const text = await refusal(name, { ...args, bogus: 1 });
+    assert.match(text, /Unknown argument `bogus`/, name);
+    assert.ok(text.includes(`This tool takes: ${takes}.`), `${name}: ${text}`);
+  }
+  assert.equal(seen.length, 0);
+});
+
+test('scan_artifact says which argument to use for the name the hosted server spells differently', async () => {
+  const text = await refusal('scan_artifact', { type: 'npm_package', ref: 'chalk@5.6.1' });
+  assert.match(text, /`type` \(use `target_type`\)/);
+  assert.equal(seen.length, 0);
+});
+
+test('check_lockfile advertises packages, and still refuses extras in its schema', async () => {
+  const { tools } = await clients.none.listTools();
+  const schema = tools.find((t) => t.name === 'check_lockfile').inputSchema;
+  assert.ok(schema.properties.packages);
+  assert.equal(schema.additionalProperties, false);
+});
+
 // ---- what a request says about the caller ------------------------------------
 
 test('a request names this package, and every request goes through the one helper', async () => {

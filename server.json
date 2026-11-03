@@ -3,7 +3,7 @@
   "name": "io.github.jamesdfinance-dev/lazaretto",
   "title": "Lazaretto",
   "description": "Supply chain security: free npm lockfile malware check, paid scan of packages, skills, MCP servers.",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "repository": {
     "url": "https://github.com/jamesdfinance-dev/lazaretto-mcp",
     "source": "github"
@@ -12,7 +12,7 @@
     {
       "registryType": "npm",
       "identifier": "lazaretto-mcp",
-      "version": "0.6.5",
+      "version": "0.6.6",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

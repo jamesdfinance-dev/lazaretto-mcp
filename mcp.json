@@ -3,7 +3,7 @@
   "mcpServers": {
     "lazaretto": {
       "type": "streamable-http",
-      "url": "https://lazaretto.dev/mcp"
+      "url": "https://lazaretto.dev/mcp?ref=cursor-directory"
     }
   }
 }

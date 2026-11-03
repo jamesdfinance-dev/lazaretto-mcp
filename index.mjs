@@ -167,7 +167,24 @@ function batchContinuation(notScanned) {
   return { detail: parts.join(' '), packages: listed.slice(0, BATCH_MAX_PACKAGES) };
 }
 
-const server = new McpServer({ name: 'lazaretto', version: '0.6.5' });
+const server = new McpServer({ name: 'lazaretto', version: '0.6.6' });
+
+/**
+ * A tool's arguments. One it does not take is refused, never dropped. Unknown keys
+ * used to be stripped, so check_lockfile given `packages` ignored them, read the
+ * lockfile on disk and reported on that, and a listed malware version came back
+ * with an empty `malicious`. `renamed` covers an argument the hosted server spells
+ * differently.
+ */
+function toolArgs(shape, renamed = {}) {
+  const takes = Object.keys(shape).join(', ');
+  const errorMap = (issue, ctx) => {
+    if (issue.code !== 'unrecognized_keys') return { message: ctx.defaultError };
+    const named = issue.keys.map((k) => (renamed[k] ? `\`${k}\` (use \`${renamed[k]}\`)` : `\`${k}\``));
+    return { message: `Unknown argument ${named.join(', ')}. This tool takes: ${takes}. Nothing was checked.` };
+  };
+  return z.object(shape, { errorMap }).strict();
+}
 
 /**
  * The lockfiles we will read from disk. This tool runs on the user's machine,
@@ -212,22 +229,23 @@ server.registerTool(
       'already hold a sha256 of a file rather than a lockfile.',
       '',
       'COST AND EFFECTS: free, no API key, no payment. Read-only. Reads the lockfile from the working',
-      'directory itself, so a large lockfile never has to be pasted through the model context.',
+      'directory itself, so a large lockfile never has to be pasted through the model context. Give',
+      '`packages` instead to ask about specific versions, and no lockfile is read.',
       '',
       'LIMITS: only exactly-pinned versions can be answered. A range such as ^5.0.0 has no definitive',
       'answer, because a compromised release usually sits between clean ones (chalk 5.6.1 was malware',
       'while 5.3.0 and later releases were not). Entries with no published registry identity',
       '(file:, link:, workspace:, git) are counted under `skipped` rather than silently dropped.',
       '',
-      'READING THE RESULT: `malicious` lists confirmed known-malware versions with advisory ids.',
-      'An empty `malicious` list is an all-clear ONLY when `unverified` is also empty AND `truncated`',
+      'READING THE RESULT: `malicious` lists confirmed known-malware versions with advisory ids, and',
+      'a result with any of them is marked as an error, so act on it rather than summarising it. An empty `malicious` list is an all-clear ONLY when `unverified` is also empty AND `truncated`',
       'is false. Anything under `unverified` could not be checked and must never be reported as clean.',
       '`truncated: true` is worse than that: the lockfile ran past the per-request package limit, and',
       'the packages past it are in NEITHER list. They were never looked at, and `checked` counts only',
       'the ones that were. When it is true, run this once per workspace with `path`, or pass the rest of',
       'the tree as `lockfile` text, before telling anyone the dependencies are clean.',
     ].join('\n'),
-    inputSchema: {
+    inputSchema: toolArgs({
       path: z
         .string()
         .max(512)
@@ -245,23 +263,43 @@ server.registerTool(
             'PR diff). Supplying this skips reading from disk. Prefer omitting it and letting the tool ' +
             'read the file, which keeps a large lockfile out of the context window.',
         ),
-    },
+      packages: z
+        .array(z.string().regex(PACKAGE_ID, 'must be an exact name@version, e.g. "chalk@5.6.1" or "@scope/name@1.2.3"'))
+        .min(1)
+        .optional()
+        .describe(
+          'Exact name@version identities to check instead of a lockfile, e.g. ["chalk@5.6.1", ' +
+            '"@babel/core@7.24.0"]. Use it when you know which versions you care about. Give this or ' +
+            '`path` or `lockfile`, not more than one kind: no lockfile is read or sent.',
+        ),
+    }),
   },
-  async ({ path, lockfile }) => {
-    let text = lockfile;
-    let source = '(provided contents)';
-    if (text === undefined) {
-      const found = readLocalLockfile(path);
-      if (found.error) return textResult({ error: 'lockfile_not_read', detail: found.error });
-      text = found.text;
-      source = found.path;
+  async ({ path, lockfile, packages }) => {
+    // Both, and it is not clear which was meant, so neither, as on the hosted server.
+    if (packages !== undefined && (path !== undefined || lockfile !== undefined)) {
+      return textResult(
+        { error: 'ambiguous_input', detail: 'Give packages, or path or lockfile, not both. Nothing was checked.', not_an_all_clear: true },
+        true,
+      );
+    }
+    let request;
+    let source;
+    if (packages !== undefined) {
+      source = '(packages input)';
+      request = { headers: { 'content-type': 'application/json' }, body: JSON.stringify({ packages: packages.map(toPackageRef) }) };
+    } else {
+      let text = lockfile;
+      source = '(provided contents)';
+      if (text === undefined) {
+        const found = readLocalLockfile(path);
+        if (found.error) return textResult({ error: 'lockfile_not_read', detail: found.error, not_an_all_clear: true }, true);
+        text = found.text;
+        source = found.path;
+      }
+      request = { headers: { 'content-type': 'text/plain' }, body: text };
     }
     try {
-      const res = await api('/v1/lockfile', {
-        method: 'POST',
-        headers: { 'content-type': 'text/plain' },
-        body: text,
-      });
+      const res = await api('/v1/lockfile', { method: 'POST', ...request });
       const body = await res.json();
       if (!res.ok) {
         // Say what to do next. An agent that just sees "error" may report the
@@ -273,12 +311,14 @@ server.registerTool(
             : res.status >= 500
               ? 'The service could not be reached. Do not treat this as an all-clear.'
               : `HTTP ${res.status}`);
-        return textResult({ error: body?.error ?? 'lockfile_check_failed', detail, source, not_an_all_clear: true });
+        return textResult({ error: body?.error ?? 'lockfile_check_failed', detail, source, not_an_all_clear: true }, true);
       }
-      return textResult({ source, ...body });
+      // An error result when something is malicious, as on the hosted server, so
+      // the calling model acts on it rather than summarising it away.
+      return textResult({ source, ...body }, (body?.malicious?.length ?? 0) > 0);
     } catch (e) {
       // Fail closed: never let a transport failure read as "nothing malicious".
-      return textResult({ error: 'request_failed', detail: String(e?.message ?? e), not_an_all_clear: true });
+      return textResult({ error: 'request_failed', detail: String(e?.message ?? e), not_an_all_clear: true }, true);
     }
   },
 );
@@ -307,7 +347,7 @@ server.registerTool(
       'store could not be consulted, which is also not a clean verdict. For an actual behavioral',
       'opinion, use scan_artifact.',
     ].join('\n'),
-    inputSchema: {
+    inputSchema: toolArgs({
       sha256: z
         .string()
         .regex(/^(sha256:)?[0-9a-fA-F]{64}$/, 'must be a sha256 hex digest')
@@ -316,15 +356,18 @@ server.registerTool(
             'This is the hash of the artifact bytes themselves (for example `shasum -a 256 file.tgz`), ' +
             'not of a URL or a package name.',
         ),
-    },
+    }),
   },
   async ({ sha256 }) => {
     const hash = sha256.replace(/^sha256:/i, '').toLowerCase();
     try {
       const res = await api(`/v1/known-bad/${hash}`);
-      return textResult(await res.json());
+      const body = await res.json();
+      // matched: null means the store could not be consulted. Neither that nor a
+      // refused request may read as "not known bad", as on the hosted server.
+      return textResult(body, !res.ok || body?.known_bad?.matched === null);
     } catch (e) {
-      return textResult({ error: 'request_failed', detail: String(e?.message ?? e) });
+      return textResult({ error: 'request_failed', detail: String(e?.message ?? e) }, true);
     }
   },
 );
@@ -366,7 +409,7 @@ server.registerTool(
       'under an older rules version, so re-scan for a current verdict. `attestation` is a compact JWS',
       `you can verify with verify_attestation or offline against ${BASE}/.well-known/jwks.json.`,
     ].join('\n'),
-    inputSchema: {
+    inputSchema: toolArgs({
       subject: z
         .string()
         .trim()
@@ -377,7 +420,7 @@ server.registerTool(
             'server endpoint URL such as "https://example.com/mcp", or a sha256 content hash as 64 hex ' +
             'characters, with or without a leading "sha256:" prefix.',
         ),
-    },
+    }),
   },
   async ({ subject }) => {
     // Hashes are stored as lowercase "sha256:<hex>". Accept the bare or
@@ -443,7 +486,7 @@ server.registerTool(
       'it. A `contradicted` field means the signature is valid but the subject is now a known-bad match',
       '(a stale verdict): treat that as a failure, not a pass.',
     ].join('\n'),
-    inputSchema: {
+    inputSchema: toolArgs({
       attestation: z
         .string()
         .min(1)
@@ -451,7 +494,7 @@ server.registerTool(
           'The compact-JWS attestation string from a scan report (the `attestation` field of a scan ' +
             'verdict): three base64url segments separated by dots.',
         ),
-    },
+    }),
   },
   async ({ attestation }) => {
     try {
@@ -466,7 +509,7 @@ server.registerTool(
       // normal result: the answer to "is this genuine?" is simply "no".
       return textResult(body, Boolean(body?.contradicted));
     } catch (e) {
-      return textResult({ error: 'request_failed', detail: String(e?.message ?? e) });
+      return textResult({ error: 'request_failed', detail: String(e?.message ?? e) }, true);
     }
   },
 );
@@ -505,7 +548,7 @@ server.registerTool(
       '',
       UNTRUSTED,
     ].join('\n'),
-    inputSchema: {
+    inputSchema: toolArgs({
       target_type: z
         .enum(['github_repo', 'raw_url', 'clawhub_skill', 'npm_package', 'pypi_package', 'mcp_server', 'inline'])
         .describe(
@@ -540,7 +583,7 @@ server.registerTool(
             '"lookup" only matches known-bad indicators and skips the rules, so it is faster and ' +
             'returns no findings. Use "full" unless you specifically want an identity check.',
         ),
-    },
+    }, { type: 'target_type' }),
   },
   async ({ target_type, ref, content, depth }) => {
     const target = { type: target_type };
@@ -582,7 +625,7 @@ server.registerTool(
       '`verdict`. A `clear` with `analysis_partial: true` is not a clean result. `billed_credits` and',
       '`remaining_credits` show what the call cost.',
     ].join('\n'),
-    inputSchema: {
+    inputSchema: toolArgs({
       packages: z
         .array(z.string().regex(PACKAGE_ID, 'must be an exact name@version, e.g. "chalk@5.6.1" or "@scope/name@1.2.3"'))
         .min(1)
@@ -612,7 +655,7 @@ server.registerTool(
             'is not on disk. Supplying this skips reading from disk. Prefer omitting it and letting ' +
             'the tool read the file, which keeps a large lockfile out of the context window.',
         ),
-    },
+    }),
   },
   async ({ packages, path, lockfile }) => {
     // No key means the service can only refuse. Say so here rather than
@@ -708,7 +751,7 @@ server.registerTool(
       '',
       UNTRUSTED,
     ].join('\n'),
-    inputSchema: {
+    inputSchema: toolArgs({
       url: z
         .string()
         .max(2048)
@@ -716,7 +759,7 @@ server.registerTool(
           'The MCP server\'s https endpoint, for example https://example.com/mcp. Streamable HTTP and ' +
             'SSE replies are both read.',
         ),
-    },
+    }),
   },
   async ({ url }) =>
     paidScan({ target: { type: 'mcp_server', ref: url }, depth: 'full' }, 'Scanning a server is paid.'),
@@ -753,7 +796,7 @@ server.registerTool(
       '',
       UNTRUSTED,
     ].join('\n'),
-    inputSchema: {
+    inputSchema: toolArgs({
       tools_json: z
         .string()
         .min(2)
@@ -761,7 +804,7 @@ server.registerTool(
           'The tool definitions as JSON text: a tools/list response, {"tools":[...]}, or an array of ' +
             'tool objects. This is what your MCP client received when it connected to the server.',
         ),
-    },
+    }),
   },
   async ({ tools_json }) =>
     paidScan({ target: { type: 'mcp_tools', content: tools_json }, depth: 'full' }, 'Checking tool definitions is paid.'),
