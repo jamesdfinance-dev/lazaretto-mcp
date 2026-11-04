@@ -47,8 +47,9 @@ daily. It does not read the code inside your packages. So it finds a release tha
 has been reported, and it misses a bad release that no one has reported yet. A clean
 result means nothing matched. It does not prove a package is harmless.
 
-A paid scan goes further. It fetches the package into a sandbox, never runs it, and
-reports the behavior it sees with the file and line.
+A full scan goes further. A worker with no credentials fetches the package's files,
+never runs them, and reports what it finds with the file and line. A free key gets 10
+scans a day.
 
 This package is a thin front end for the [Lazaretto](https://lazaretto.ai) API. It
 ships no detection logic and only makes HTTPS requests, so you can read it end to
