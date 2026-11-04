@@ -3,41 +3,56 @@
 [![Lazaretto on the x402 List](https://x402-list.com/badge/lazaretto.svg?data=uptime)](https://x402-list.com/services/lazaretto)
 [![Lazaretto on Wellknown](https://wellknown.network/agents/lazaretto/badge.svg)](https://wellknown.network/agents/lazaretto)
 
-Know what a package does before you install it.
+Know what a package or MCP server does before you install or connect it.
 
-## Quick start
+Lazaretto checks an npm package, an AI agent skill, or an
+[MCP](https://modelcontextprotocol.io) server for malicious behavior. This is the
+MCP server for it, so your agent can run the check itself.
 
-No account and no key. In Claude Code:
+## Add it
+
+In Claude, the fastest way is the
+[Lazaretto connector in the Claude directory](https://claude.ai/directory/lazaretto).
+Open it and add it. The connector needs no sign-in. It also works in ChatGPT, on
+some plans.
+
+In Claude Code, one command:
 
 ```bash
 claude mcp add --transport http lazaretto "https://lazaretto.dev/mcp?ref=npm"
 ```
 
-Then, in a project with a lockfile, ask your agent for the free check:
-
-> Use the lazaretto `check_lockfile` tool to check this project's dependencies.
-
-In any other client, add `https://lazaretto.dev/mcp?ref=npm` as a remote MCP
-server. If your client only runs local servers, make `npx -y lazaretto-mcp` the
-command, which needs Node 20 or newer. [Set it up](#set-it-up) has the exact steps
-for Cursor, Gemini CLI and Cline, and [lazaretto.dev/add](https://lazaretto.dev/add)
-covers more clients.
+For any other client, [lazaretto.dev/add](https://lazaretto.dev/add) has the exact
+steps, and [Set it up](#set-it-up) below covers Claude Code, Cursor, Gemini CLI and
+Cline. If your client only runs local servers, use `npx -y lazaretto-mcp` as the
+command, which needs Node 20 or newer.
 
 `ref=npm` only tells us this page is where you found it. Leave it off and nothing
 changes.
 
-## What it is
+## Try the free check
 
-An [MCP](https://modelcontextprotocol.io) server for Lazaretto: deterministic
-pre-install verification for npm packages, AI agent skills and MCP tools. The
-free lockfile check matches every exactly pinned dependency against OSV and
-OpenSSF malicious-package advisories, with no account. A metered scan adds
-behavioral analysis with file-and-line evidence.
+In a project with a lockfile, ask your agent:
 
-This package is a thin front end for the [Lazaretto](https://lazaretto.ai)
-API. It ships no detection logic and does nothing but make HTTPS requests, so
-it is short enough to read end to end. Each request names this package in its
-`User-Agent` header, so we can tell how much use comes through it.
+> Use the lazaretto `check_lockfile` tool to check this project's dependencies.
+
+Or run it in the browser at the
+[free lockfile check](https://lazaretto.dev/check/lockfile), with no account.
+
+## What each check reads, and what it does not
+
+The free lockfile check takes each exactly pinned package name and version. It
+matches them against the OSV and OpenSSF malicious-package advisories, which we sync
+daily. It does not read the code inside your packages. So it finds a release that
+has been reported, and it misses a bad release that no one has reported yet. A clean
+result means nothing matched. It does not prove a package is harmless.
+
+A paid scan goes further. It fetches the package into a sandbox, never runs it, and
+reports the behavior it sees with the file and line.
+
+This package is a thin front end for the [Lazaretto](https://lazaretto.ai) API. It
+ships no detection logic and only makes HTTPS requests, so you can read it end to
+end.
 
 Setting this up as an agent, with no other context? Read
 [llms-install.md](llms-install.md) instead. It is the same information as a
